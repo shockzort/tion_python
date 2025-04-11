@@ -20,7 +20,6 @@ class DeviceInfo:
     model: str
     is_active: bool = True
     is_paired: bool = False
-    pairing_data: bytes = None
 
 class DeviceManager:
     """Manager for Tion devices discovery and registration"""
@@ -43,7 +42,6 @@ class DeviceManager:
                     model TEXT NOT NULL,
                     is_active BOOLEAN DEFAULT 1,
                     is_paired BOOLEAN DEFAULT 0,
-                    pairing_data BLOB,
                     updated_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
@@ -101,7 +99,7 @@ class DeviceManager:
 
     def get_devices(self, active_only: bool = True) -> List[DeviceInfo]:
         """Get list of registered devices"""
-        query = "SELECT id, name, type, mac_address, model, is_active, is_paired, pairing_data FROM devices"
+        query = "SELECT id, name, type, mac_address, model, is_active, is_paired FROM devices"
         if active_only:
             query += " WHERE is_active = 1"
             
@@ -113,7 +111,7 @@ class DeviceManager:
         """Get single device by ID"""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.execute("""
-                SELECT id, name, type, mac_address, model, is_active, is_paired, pairing_data
+                SELECT id, name, type, mac_address, model, is_active, is_paired
                 FROM devices 
                 WHERE id = ?
             """, (device_id,))
@@ -156,7 +154,7 @@ class DeviceManager:
             return conn.total_changes > 0
             
     async def pair_device(self, device_id: str, timeout: int = 30) -> bool:
-        """Pair with device and save pairing data"""
+        """Pair with device using Tion's pair() method"""
         device_info = self.get_device(device_id)
         if not device_info:
             raise ValueError(f"Device {device_id} not found")
@@ -202,7 +200,7 @@ class DeviceManager:
             with sqlite3.connect(self.db_path) as conn:
                 conn.execute("""
                     UPDATE devices 
-                    SET is_paired = 0, pairing_data = NULL, updated_date = CURRENT_TIMESTAMP
+                    SET is_paired = 0, updated_date = CURRENT_TIMESTAMP
                     WHERE id = ?
                 """, (device_id,))
                 conn.commit()
