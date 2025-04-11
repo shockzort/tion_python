@@ -10,9 +10,11 @@ from tion_btle import Tion, TionS3, TionLite, TionS4
 
 _LOGGER = logging.getLogger(__name__)
 
+
 @dataclass
 class DeviceInfo:
     """Dataclass for storing device information"""
+
     id: str
     name: str
     type: str
@@ -21,19 +23,21 @@ class DeviceInfo:
     is_active: bool = True
     is_paired: bool = False
 
+
 class DeviceManager:
     """Manager for Tion devices discovery and registration"""
-    
+
     TION_DEVICE_PREFIXES = ("Tion_Breezer_", "tion_")
-    
+
     def __init__(self, db_path: str = "devices.db"):
         self.db_path = db_path
         self._init_db()
-        
+
     def _init_db(self) -> None:
         """Initialize database with devices table"""
         with sqlite3.connect(self.db_path) as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 CREATE TABLE IF NOT EXISTS devices (
                     id TEXT PRIMARY KEY,
                     name TEXT NOT NULL,
@@ -44,13 +48,18 @@ class DeviceManager:
                     is_paired BOOLEAN DEFAULT 0,
                     updated_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
-            """)
+            """
+            )
             conn.commit()
 
     async def discover_devices(self) -> List[BLEDevice]:
         """Discover Tion BLE devices in range"""
         devices = await BleakScanner.discover()
-        return [d for d in devices if d.name and d.name.startswith(self.TION_DEVICE_PREFIXES)]
+        return [
+            d
+            for d in devices
+            if d.name and d.name.startswith(self.TION_DEVICE_PREFIXES)
+        ]
 
     def get_device_class(self, device_name: str) -> type[Tion]:
         """Get appropriate Tion class based on device name"""
@@ -62,24 +71,27 @@ class DeviceManager:
             return TionS4
         return Tion
 
-    async def register_device(self, device: BLEDevice, name: str = None, auto_pair: bool = False) -> DeviceInfo:
+    async def register_device(
+        self, device: BLEDevice, name: str = None, auto_pair: bool = False
+    ) -> DeviceInfo:
         """Register new device in database"""
         device_class = self.get_device_class(device.name)
         device_type = device_class.__name__
-        
+
         if not name:
             name = device.name.replace("Tion_Breezer_", "").replace("_", " ").title()
-            
+
         device_info = DeviceInfo(
             id=device.address,
             name=name,
             type=device_type,
             mac_address=device.address,
-            model=device_class.__name__.replace("Tion", "")
+            model=device_class.__name__.replace("Tion", ""),
         )
-        
+
         with sqlite3.connect(self.db_path) as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT INTO devices (id, name, type, mac_address, model, is_paired)
                 VALUES (?, ?, ?, ?, ?, ?)
                 ON CONFLICT(mac_address) DO UPDATE SET
@@ -88,13 +100,21 @@ class DeviceManager:
                     model=excluded.model,
                     updated_date=CURRENT_TIMESTAMP,
                     is_active=1
-            """, (device_info.id, device_info.name, device_info.type, 
-                 device_info.mac_address, device_info.model, False))
-            
+            """,
+                (
+                    device_info.id,
+                    device_info.name,
+                    device_info.type,
+                    device_info.mac_address,
+                    device_info.model,
+                    False,
+                ),
+            )
+
             if auto_pair:
                 await self.pair_device(device_info.id)
             conn.commit()
-            
+
         return device_info
 
     def get_devices(self, active_only: bool = True) -> List[DeviceInfo]:
@@ -102,7 +122,7 @@ class DeviceManager:
         query = "SELECT id, name, type, mac_address, model, is_active, is_paired FROM devices"
         if active_only:
             query += " WHERE is_active = 1"
-            
+
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.execute(query)
             return [DeviceInfo(*row) for row in cursor.fetchall()]
@@ -110,11 +130,14 @@ class DeviceManager:
     def get_device(self, device_id: str) -> Optional[DeviceInfo]:
         """Get single device by ID"""
         with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT id, name, type, mac_address, model, is_active, is_paired
-                FROM devices 
+                FROM devices
                 WHERE id = ?
-            """, (device_id,))
+            """,
+                (device_id,),
+            )
             row = cursor.fetchone()
             return DeviceInfo(*row) if row else None
 
@@ -122,19 +145,22 @@ class DeviceManager:
         """Update device properties"""
         valid_fields = {"name", "type", "is_active"}
         updates = {k: v for k, v in kwargs.items() if k in valid_fields}
-        
+
         if not updates:
             return False
-            
+
         set_clause = ", ".join(f"{k} = ?" for k in updates)
         params = list(updates.values()) + [device_id]
-        
+
         with sqlite3.connect(self.db_path) as conn:
-            conn.execute(f"""
-                UPDATE devices 
+            conn.execute(
+                f"""
+                UPDATE devices
                 SET {set_clause}, updated_date = CURRENT_TIMESTAMP
                 WHERE id = ?
-            """, params)
+            """,
+                params,
+            )
             conn.commit()
             return conn.total_changes > 0
 
@@ -142,80 +168,92 @@ class DeviceManager:
         """Mark device as inactive and unpair it"""
         # First unpair the device
         await self.unpair_device(device_id)
-        
+
         # Then mark as inactive
         with sqlite3.connect(self.db_path) as conn:
-            conn.execute("""
-                UPDATE devices 
+            conn.execute(
+                """
+                UPDATE devices
                 SET is_active = 0, updated_date = CURRENT_TIMESTAMP
                 WHERE id = ?
-            """, (device_id,))
+            """,
+                (device_id,),
+            )
             conn.commit()
             return conn.total_changes > 0
-            
+
     async def pair_device(self, device_id: str, timeout: int = 30) -> bool:
         """Pair with device using Tion's pair() method"""
         device_info = self.get_device(device_id)
         if not device_info:
             raise ValueError(f"Device {device_id} not found")
-            
+
         device_class = self.get_device_class(device_info.type)
         device = device_class(device_info.mac_address)
-        
+
         try:
-            _LOGGER.info(f"Starting pairing process for {device_id}, timeout: {timeout}s")
+            _LOGGER.info(
+                f"Starting pairing process for {device_id}, timeout: {timeout}s"
+            )
             await asyncio.wait_for(device.pair(), timeout=timeout)
-            
+
             # Save pairing success
             with sqlite3.connect(self.db_path) as conn:
-                conn.execute("""
-                    UPDATE devices 
+                conn.execute(
+                    """
+                    UPDATE devices
                     SET is_paired = 1, updated_date = CURRENT_TIMESTAMP
                     WHERE id = ?
-                """, (device_id,))
+                """,
+                    (device_id,),
+                )
                 conn.commit()
-                
+
             _LOGGER.info(f"Successfully paired device {device_id}")
             return True
-            
+
         except asyncio.TimeoutError:
             _LOGGER.error(f"Pairing timeout for device {device_id}")
             return False
         except Exception as e:
             _LOGGER.error(f"Failed to pair device {device_id}: {str(e)}")
             return False
-            
+
     async def unpair_device(self, device_id: str) -> bool:
         """Unpair device"""
         device_info = self.get_device(device_id)
         if not device_info or not device_info.is_paired:
             return False
-            
+
         device_class = self.get_device_class(device_info.type)
         device = device_class(device_info.mac_address)
-        
+
         try:
             await device._btle.unpair()
-            
+
             with sqlite3.connect(self.db_path) as conn:
-                conn.execute("""
-                    UPDATE devices 
+                conn.execute(
+                    """
+                    UPDATE devices
                     SET is_paired = 0, updated_date = CURRENT_TIMESTAMP
                     WHERE id = ?
-                """, (device_id,))
+                """,
+                    (device_id,),
+                )
                 conn.commit()
-                
+
             _LOGGER.info(f"Successfully unpaired device {device_id}")
             return True
         except Exception as e:
             _LOGGER.error(f"Failed to unpair device {device_id}: {str(e)}")
             return False
 
+
 async def discover_and_register_all(manager: DeviceManager) -> List[DeviceInfo]:
     """Discover and register all Tion devices in range"""
     devices = await manager.discover_devices()
     registered = []
-    
+
     for device in devices:
         try:
             device_info = await manager.register_device(device)
@@ -223,5 +261,5 @@ async def discover_and_register_all(manager: DeviceManager) -> List[DeviceInfo]:
             _LOGGER.info(f"Registered device: {device_info}")
         except Exception as e:
             _LOGGER.error(f"Failed to register device {device}: {e}")
-            
+
     return registered
