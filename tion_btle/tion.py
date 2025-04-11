@@ -24,20 +24,35 @@ def retry(retries: int = 2, delay: int = 0):
         async def wrapper(*args, **kwargs):
             last_info_exception = None
             last_warning_exception = None
-            for i in range(retries+1):
+            for i in range(retries + 1):
                 try:
-                    _LOGGER.debug("Trying %d/%d: %s(args=%s,kwargs=%s)", i, retries, f.__name__, args, kwargs)
+                    _LOGGER.debug(
+                        "Trying %d/%d: %s(args=%s,kwargs=%s)",
+                        i,
+                        retries,
+                        f.__name__,
+                        args,
+                        kwargs,
+                    )
                     if inspect.iscoroutinefunction(f):
                         return await f(*args, **kwargs)
                     return f(*args, **kwargs)
                 except (exc.BleakError, exc.BleakDBusError) as _e:
-                    next_message = "Will try again" if i < retries else "Will not try again"
+                    next_message = (
+                        "Will try again" if i < retries else "Will not try again"
+                    )
                     _LOGGER.warning("Got exception: %s. %s", str(_e), next_message)
                     last_warning_exception = _e
                     if delay > 0:
                         await asyncio.sleep(delay)
 
-            _LOGGER.critical("Retry limit (%d) exceeded for %s(%s, %s)", retries, f.__name__, args, kwargs)
+            _LOGGER.critical(
+                "Retry limit (%d) exceeded for %s(%s, %s)",
+                retries,
+                f.__name__,
+                args,
+                kwargs,
+            )
             if _LOGGER.level > logging.INFO and last_info_exception is not None:
                 _LOGGER.critical(f"Last exception was {last_info_exception}")
             elif _LOGGER.level > logging.WARNING and last_warning_exception is not None:
@@ -46,6 +61,7 @@ def retry(retries: int = 2, delay: int = 0):
             raise MaxTriesExceededError
 
         return wrapper
+
     return decor
 
 
@@ -74,8 +90,11 @@ class TionException(Exception):
 
 
 class Tion:
-    statuses = ['off', 'on']
-    modes = ['recirculation', 'mixed']  # 'recirculation', 'mixed' and 'outside', as Index exception
+    statuses = ["off", "on"]
+    modes = [
+        "recirculation",
+        "mixed",
+    ]  # 'recirculation', 'mixed' and 'outside', as Index exception
     uuid_notify: str = ""
     uuid_write: str = ""
 
@@ -107,7 +126,7 @@ class Tion:
 
     @abc.abstractmethod
     async def _send_request(self, request: bytearray):
-        """ Send request to device
+        """Send request to device
 
         Args:
           request : array of bytes to send to device
@@ -118,7 +137,7 @@ class Tion:
 
     @abc.abstractmethod
     def _decode_response(self, response: bytearray) -> dict:
-        """ Decode response from device
+        """Decode response from device
 
         Args:
           response: array of bytes with data from device, taken from _send_request
@@ -129,7 +148,7 @@ class Tion:
 
     @abc.abstractmethod
     def _encode_request(self, request: dict) -> bytearray:
-        """ Encode dictionary of request to byte array
+        """Encode dictionary of request to byte array
 
         Args:
           request: dictionary with request
@@ -203,8 +222,10 @@ class Tion:
           dictionary with device state
         """
         if skip_update and self.have_breezer_state:
-            _LOGGER.debug(f"Skipping getting state from breezer because skip_update={skip_update} and "
-                          f"have_breezer_state={self.have_breezer_state}")
+            _LOGGER.debug(
+                f"Skipping getting state from breezer because skip_update={skip_update} and "
+                f"have_breezer_state={self.have_breezer_state}"
+            )
         else:
             await self.get_state_from_breezer()
         common = self.__generate_common_json()
@@ -219,7 +240,7 @@ class Tion:
         :param request: changed breezer parameter from set request
         :return: None
         """
-        for p in ['fan_speed', 'heater_temp', 'heater', 'sound', 'mode', 'state']:
+        for p in ["fan_speed", "heater_temp", "heater", "sound", "mode", "state"]:
             # ToDo: lite have additional parameters to set: "light" and "co2_auto_control", so we should get this
             #  list from class
             try:
@@ -265,7 +286,7 @@ class Tion:
 
     @staticmethod
     def decode_temperature(raw: int) -> int:
-        """ Converts temperature from bytes with addition code to int
+        """Converts temperature from bytes with addition code to int
         Args:
           raw: raw temperature value from Tion
         Returns:
@@ -279,7 +300,7 @@ class Tion:
         try:
             status = self.statuses[code]
         except IndexError:
-            status = 'unknown'
+            status = "unknown"
         return status
 
     @final
@@ -324,18 +345,18 @@ class Tion:
     @final
     @retry(retries=3)
     async def _try_write(self, request: bytearray):
-        _LOGGER.debug(f"Writing {bytes(request).hex()} to {self.uuid_write}, {self.connection_status=}")
-        return await self._btle.write_gatt_char(
-            self.uuid_write,
-            request,
-            False
+        _LOGGER.debug(
+            f"Writing {bytes(request).hex()} to {self.uuid_write}, {self.connection_status=}"
         )
+        return await self._btle.write_gatt_char(self.uuid_write, request, False)
 
     @final
     async def _enable_notifications(self):
         _LOGGER.debug(f"Enabling notification. {self.connection_status=}")
         try:
-            await self._btle.start_notify(self.uuid_notify, self._delegation.handleNotification)
+            await self._btle.start_notify(
+                self.uuid_notify, self._delegation.handleNotification
+            )
         except exc.BleakError as e:
             _LOGGER.warning("Got exception %s while enabling notifications!" % str(e))
             raise e
@@ -365,7 +386,7 @@ class Tion:
         try:
             mode = self.modes[mode_code]
         except IndexError:
-            mode = 'outside'
+            mode = "outside"
         return mode
 
     @staticmethod
@@ -489,7 +510,7 @@ class Tion:
             _LOGGER.debug("Device pair is done")
         except Exception as e:
             _LOGGER.critical(f"Got exception while pair {type(e).__name__}: {str(e)}")
-            raise TionException('pair', f"{type(e).__name__}: {str(e)}")
+            raise TionException("pair", f"{type(e).__name__}: {str(e)}")
         finally:
             _LOGGER.debug("disconnected")
             await self._disconnect()
@@ -537,7 +558,7 @@ class Tion:
 
     @final
     async def _get_data_from_breezer(self) -> bytearray:
-        """ Get byte array with breezer response on state request
+        """Get byte array with breezer response on state request
 
         :returns:
           breezer response
@@ -580,7 +601,9 @@ class Tion:
     def set_new_btle_device(self):
         if self._next_btle_device is not None:
             try:
-                _LOGGER.debug(f"Updating _btle instance from {self._btle} to {self._next_btle_device}")
+                _LOGGER.debug(
+                    f"Updating _btle instance from {self._btle} to {self._next_btle_device}"
+                )
             except AttributeError:
                 pass
 
