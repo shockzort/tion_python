@@ -1,0 +1,160 @@
+import asyncio
+import logging
+from typing import List, Dict, Optional
+from dataclasses import dataclass
+import sqlite3
+from bleak import BleakScanner
+from bleak.backends.device import BLEDevice
+
+from tion_btle import Tion, TionS3, TionLite, TionS4
+
+_LOGGER = logging.getLogger(__name__)
+
+@dataclass
+class DeviceInfo:
+    """Dataclass for storing device information"""
+    id: str
+    name: str
+    type: str
+    mac_address: str
+    model: str
+    is_active: bool = True
+
+class DeviceManager:
+    """Manager for Tion devices discovery and registration"""
+    
+    TION_DEVICE_PREFIXES = ("Tion_Breezer_", "tion_")
+    
+    def __init__(self, db_path: str = "devices.db"):
+        self.db_path = db_path
+        self._init_db()
+        
+    def _init_db(self) -> None:
+        """Initialize database with devices table"""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS devices (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    type TEXT NOT NULL,
+                    mac_address TEXT UNIQUE NOT NULL,
+                    model TEXT NOT NULL,
+                    is_active BOOLEAN DEFAULT 1,
+                    updated_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            conn.commit()
+
+    async def discover_devices(self) -> List[BLEDevice]:
+        """Discover Tion BLE devices in range"""
+        devices = await BleakScanner.discover()
+        return [d for d in devices if d.name and d.name.startswith(self.TION_DEVICE_PREFIXES)]
+
+    def get_device_class(self, device_name: str) -> type[Tion]:
+        """Get appropriate Tion class based on device name"""
+        if "S3" in device_name:
+            return TionS3
+        elif "Lite" in device_name:
+            return TionLite
+        elif "S4" in device_name:
+            return TionS4
+        return Tion
+
+    async def register_device(self, device: BLEDevice, name: str = None) -> DeviceInfo:
+        """Register new device in database"""
+        device_class = self.get_device_class(device.name)
+        device_type = device_class.__name__
+        
+        if not name:
+            name = device.name.replace("Tion_Breezer_", "").replace("_", " ").title()
+            
+        device_info = DeviceInfo(
+            id=device.address,
+            name=name,
+            type=device_type,
+            mac_address=device.address,
+            model=device_class.__name__.replace("Tion", "")
+        )
+        
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                INSERT INTO devices (id, name, type, mac_address, model)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(mac_address) DO UPDATE SET
+                    name=excluded.name,
+                    type=excluded.type,
+                    model=excluded.model,
+                    updated_date=CURRENT_TIMESTAMP,
+                    is_active=1
+            """, (device_info.id, device_info.name, device_info.type, 
+                 device_info.mac_address, device_info.model))
+            conn.commit()
+            
+        return device_info
+
+    def get_devices(self, active_only: bool = True) -> List[DeviceInfo]:
+        """Get list of registered devices"""
+        query = "SELECT id, name, type, mac_address, model, is_active FROM devices"
+        if active_only:
+            query += " WHERE is_active = 1"
+            
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute(query)
+            return [DeviceInfo(*row) for row in cursor.fetchall()]
+
+    def get_device(self, device_id: str) -> Optional[DeviceInfo]:
+        """Get single device by ID"""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("""
+                SELECT id, name, type, mac_address, model, is_active 
+                FROM devices 
+                WHERE id = ?
+            """, (device_id,))
+            row = cursor.fetchone()
+            return DeviceInfo(*row) if row else None
+
+    def update_device(self, device_id: str, **kwargs) -> bool:
+        """Update device properties"""
+        valid_fields = {"name", "type", "is_active"}
+        updates = {k: v for k, v in kwargs.items() if k in valid_fields}
+        
+        if not updates:
+            return False
+            
+        set_clause = ", ".join(f"{k} = ?" for k in updates)
+        params = list(updates.values()) + [device_id]
+        
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(f"""
+                UPDATE devices 
+                SET {set_clause}, updated_date = CURRENT_TIMESTAMP
+                WHERE id = ?
+            """, params)
+            conn.commit()
+            return conn.total_changes > 0
+
+    def delete_device(self, device_id: str) -> bool:
+        """Mark device as inactive"""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                UPDATE devices 
+                SET is_active = 0, updated_date = CURRENT_TIMESTAMP
+                WHERE id = ?
+            """, (device_id,))
+            conn.commit()
+            return conn.total_changes > 0
+
+async def discover_and_register_all(manager: DeviceManager) -> List[DeviceInfo]:
+    """Discover and register all Tion devices in range"""
+    devices = await manager.discover_devices()
+    registered = []
+    
+    for device in devices:
+        try:
+            device_info = await manager.register_device(device)
+            registered.append(device_info)
+            _LOGGER.info(f"Registered device: {device_info}")
+        except Exception as e:
+            _LOGGER.error(f"Failed to register device {device}: {e}")
+            
+    return registered
