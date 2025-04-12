@@ -23,6 +23,7 @@ class DeviceInfo:
     model: str
     is_active: bool = True
     is_paired: bool = False
+    room: Optional[str] = None
 
 
 class DeviceManager:
@@ -273,7 +274,7 @@ class DeviceManager:
         if not device_info:
             raise ValueError(f"Device {device_id} not found")
 
-        device_class = self.get_device_class(device_info.type)
+        device_class = self.get_device_class(mock_ble_device.name)
         device = device_class(device_info.mac_address)
 
         try:

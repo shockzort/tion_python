@@ -77,6 +77,7 @@ async def test_register_device(device_manager, mock_ble_device):
     assert device_info.mac_address == mock_ble_device.address
     assert device_info.model == "S3"
     assert not device_info.is_paired
+    assert device_info.room is None
 
     # Check DB content
     with sqlite3.connect(device_manager.db_path) as conn:
@@ -114,15 +115,16 @@ async def test_update_device(device_manager, mock_ble_device):
     """Test updating device properties"""
     device_info = await device_manager.register_device(mock_ble_device)
 
-    # Update name and active status
+    # Update name, active status and room
     updated = device_manager.update_device(
-        device_info.id, name="New Name", is_active=False
+        device_info.id, name="New Name", is_active=False, room="Living Room"
     )
 
     assert updated
     retrieved = device_manager.get_device(device_info.id)
     assert retrieved.name == "New Name"
     assert not retrieved.is_active
+    assert retrieved.room == "Living Room"
 
 
 @pytest.mark.asyncio
