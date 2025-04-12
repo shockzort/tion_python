@@ -215,3 +215,58 @@ async def test_discover_and_register_all(device_manager, mock_ble_device):
             registered = await discover_and_register_all(device_manager)
             assert len(registered) == 1
             assert registered[0].name == "Test Device"
+
+# Device Groups Tests
+async def test_create_device_group(device_manager, mock_ble_device):
+    """Test creating a device group"""
+    await device_manager.register_device(mock_ble_device)
+    device_id = mock_ble_device.address
+        
+    group_id = device_manager.create_device_group(
+        name="Living Room", 
+        device_ids=[device_id]
+    )
+    assert group_id > 0
+        
+    groups = device_manager.get_device_groups()
+    assert len(groups) == 1
+    assert groups[0]["name"] == "Living Room"
+    assert device_id in json.loads(groups[0]["device_ids"])
+
+async def test_update_device_group(device_manager, mock_ble_device):
+    """Test updating a device group"""
+    await device_manager.register_device(mock_ble_device)
+    device_id = mock_ble_device.address
+    group_id = device_manager.create_device_group(
+        name="Original Name",
+        device_ids=[device_id]
+    )
+        
+    updated = device_manager.update_device_group(
+        group_id,
+        name="Updated Name",
+        device_ids=[device_id, "test-device"]
+    )
+    assert updated
+        
+    groups = device_manager.get_device_groups()
+    assert groups[0]["name"] == "Updated Name"
+    assert len(json.loads(groups[0]["device_ids"])) == 2
+
+async def test_delete_device_group(device_manager, mock_ble_device):
+    """Test deleting a device group"""
+    await device_manager.register_device(mock_ble_device)
+    group_id = device_manager.create_device_group(
+        name="Test Group",
+        device_ids=[mock_ble_device.address]
+    )
+        
+    deleted = device_manager.delete_device_group(group_id)
+    assert deleted
+        
+    groups = device_manager.get_device_groups()
+    assert len(groups) == 0
+        
+    all_groups = device_manager.get_device_groups(active_only=False)
+    assert len(all_groups) == 1
+    assert not all_groups[0]["is_active"]
