@@ -34,10 +34,10 @@ class DeviceManager:
         self._init_db()
 
     def _init_db(self) -> None:
-        """Initialize database with devices table"""
+        """Initialize database tables"""
         with sqlite3.connect(self.db_path) as conn:
-            conn.execute(
-                """
+            # Devices table
+            conn.execute("""
                 CREATE TABLE IF NOT EXISTS devices (
                     id TEXT PRIMARY KEY,
                     name TEXT NOT NULL,
@@ -46,10 +46,21 @@ class DeviceManager:
                     model TEXT NOT NULL,
                     is_active BOOLEAN DEFAULT 1,
                     is_paired BOOLEAN DEFAULT 0,
+                    room TEXT,
                     updated_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
-            """
-            )
+            """)
+            
+            # Groups table
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS device_groups (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    device_ids TEXT NOT NULL,  # JSON array of device IDs
+                    is_active BOOLEAN DEFAULT 1,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
             conn.commit()
 
     async def discover_devices(self) -> List[BLEDevice]:
@@ -119,13 +130,82 @@ class DeviceManager:
 
     def get_devices(self, active_only: bool = True) -> List[DeviceInfo]:
         """Get list of registered devices"""
-        query = "SELECT id, name, type, mac_address, model, is_active, is_paired FROM devices"
+        query = """
+            SELECT id, name, type, mac_address, model, is_active, is_paired, room 
+            FROM devices
+        """
         if active_only:
             query += " WHERE is_active = 1"
 
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.execute(query)
             return [DeviceInfo(*row) for row in cursor.fetchall()]
+
+    def get_device_groups(self, active_only: bool = True) -> List[Dict]:
+        """Get list of device groups"""
+        query = "SELECT id, name, device_ids, is_active FROM device_groups"
+        if active_only:
+            query += " WHERE is_active = 1"
+
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute(query)
+            return [dict(row) for row in cursor.fetchall()]
+
+    def create_device_group(self, name: str, device_ids: List[str]) -> int:
+        """Create new device group"""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO device_groups (name, device_ids)
+                VALUES (?, ?)
+                RETURNING id
+                """,
+                (name, json.dumps(device_ids))
+            )
+            group_id = cursor.fetchone()[0]
+            conn.commit()
+            return group_id
+
+    def update_device_group(self, group_id: int, **kwargs) -> bool:
+        """Update device group properties"""
+        valid_fields = {"name", "device_ids", "is_active"}
+        updates = {k: v for k, v in kwargs.items() if k in valid_fields}
+
+        if not updates:
+            return False
+
+        if "device_ids" in updates:
+            updates["device_ids"] = json.dumps(updates["device_ids"])
+
+        set_clause = ", ".join(f"{k} = ?" for k in updates)
+        params = list(updates.values()) + [group_id]
+
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                f"""
+                UPDATE device_groups
+                SET {set_clause}
+                WHERE id = ?
+                """,
+                params
+            )
+            conn.commit()
+            return conn.total_changes > 0
+
+    def delete_device_group(self, group_id: int) -> bool:
+        """Mark device group as inactive"""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                """
+                UPDATE device_groups
+                SET is_active = 0
+                WHERE id = ?
+                """,
+                (group_id,)
+            )
+            conn.commit()
+            return conn.total_changes > 0
 
     def get_device(self, device_id: str) -> Optional[DeviceInfo]:
         """Get single device by ID"""

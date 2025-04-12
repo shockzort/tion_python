@@ -21,82 +21,11 @@ from datetime import datetime
 
 DB_PATH = "devices.db"
 
-@dataclass
-class Scenario:
-    id: int
-    name: str
-    trigger_type: str  # 'time' or 'sensor'
-    trigger_params: dict
-    action_params: dict
-    is_active: bool = True
+from tion_btle.scenarist import Scenarist
 
-def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    
-    # Devices table
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS devices (
-            id TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            type TEXT NOT NULL,
-            mac_address TEXT UNIQUE NOT NULL,
-            model TEXT NOT NULL,
-            is_active BOOLEAN DEFAULT 1,
-            is_paired BOOLEAN DEFAULT 0,
-            room TEXT,
-            updated_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-    
-    # Scenarios table
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS scenarios (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            trigger_type TEXT NOT NULL,
-            trigger_params TEXT NOT NULL,  # JSON stored as TEXT
-            action_params TEXT NOT NULL,  # JSON stored as TEXT
-            is_active BOOLEAN DEFAULT 1,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-    
-    # Groups table
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS device_groups (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            device_ids TEXT NOT NULL,  # JSON array of device IDs
-            is_active BOOLEAN DEFAULT 1
-        )
-    """)
-    
-    conn.commit()
-    conn.close()
-
-def save_device(device_info: DeviceInfo):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute(
-        """
-        INSERT OR REPLACE INTO devices 
-        (id, name, type, mac_address, model, is_active, is_paired, room)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            device_info.id,
-            device_info.name,
-            device_info.type,
-            device_info.mac_address,
-            device_info.model,
-            device_info.is_active,
-            device_info.is_paired,
-            getattr(device_info, 'room', None)
-        ),
-    )
-    conn.commit()
-    conn.close()
+# Initialize managers
+device_manager = DeviceManager()
+scenarist = Scenarist(device_manager.db_path)
 
 
 def get_current_devices():
