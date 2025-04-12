@@ -1,8 +1,9 @@
 import asyncio
 import logging
-from typing import List, Optional
+from typing import List, Dict, Optional
 from dataclasses import dataclass
 import sqlite3
+import json
 from bleak import BleakScanner
 from bleak.backends.device import BLEDevice
 
@@ -37,7 +38,8 @@ class DeviceManager:
         """Initialize database tables"""
         with sqlite3.connect(self.db_path) as conn:
             # Devices table
-            conn.execute("""
+            conn.execute(
+                """
                 CREATE TABLE IF NOT EXISTS devices (
                     id TEXT PRIMARY KEY,
                     name TEXT NOT NULL,
@@ -49,18 +51,21 @@ class DeviceManager:
                     room TEXT,
                     updated_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
-            """)
-            
+            """
+            )
+
             # Groups table
-            conn.execute("""
+            conn.execute(
+                """
                 CREATE TABLE IF NOT EXISTS device_groups (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT NOT NULL,
-                    device_ids TEXT NOT NULL,  # JSON array of device IDs
+                    device_ids TEXT NOT NULL,
                     is_active BOOLEAN DEFAULT 1,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
-            """)
+            """
+            )
             conn.commit()
 
     async def discover_devices(self) -> List[BLEDevice]:
@@ -131,7 +136,7 @@ class DeviceManager:
     def get_devices(self, active_only: bool = True) -> List[DeviceInfo]:
         """Get list of registered devices"""
         query = """
-            SELECT id, name, type, mac_address, model, is_active, is_paired, room 
+            SELECT id, name, type, mac_address, model, is_active, is_paired, room
             FROM devices
         """
         if active_only:
@@ -161,7 +166,7 @@ class DeviceManager:
                 VALUES (?, ?)
                 RETURNING id
                 """,
-                (name, json.dumps(device_ids))
+                (name, json.dumps(device_ids)),
             )
             group_id = cursor.fetchone()[0]
             conn.commit()
@@ -188,7 +193,7 @@ class DeviceManager:
                 SET {set_clause}
                 WHERE id = ?
                 """,
-                params
+                params,
             )
             conn.commit()
             return conn.total_changes > 0
@@ -202,7 +207,7 @@ class DeviceManager:
                 SET is_active = 0
                 WHERE id = ?
                 """,
-                (group_id,)
+                (group_id,),
             )
             conn.commit()
             return conn.total_changes > 0
