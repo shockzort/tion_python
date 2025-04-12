@@ -12,37 +12,86 @@ _LOGGER = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-# Подключение к SQLite базе данных
+from typing import List, Dict, Optional
+from dataclasses import dataclass
+import json
+from datetime import datetime
+
 DB_PATH = "devices.db"
 
+@dataclass
+class Scenario:
+    id: int
+    name: str
+    trigger_type: str  # 'time' or 'sensor'
+    trigger_params: dict
+    action_params: dict
+    is_active: bool = True
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute(
-        """
+    
+    # Devices table
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS devices (
             id TEXT PRIMARY KEY,
-            name TEXT,
-            type TEXT,
-            is_registered INTEGER
+            name TEXT NOT NULL,
+            type TEXT NOT NULL,
+            mac_address TEXT UNIQUE NOT NULL,
+            model TEXT NOT NULL,
+            is_active BOOLEAN DEFAULT 1,
+            is_paired BOOLEAN DEFAULT 0,
+            room TEXT,
+            updated_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
-    """
-    )
+    """)
+    
+    # Scenarios table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS scenarios (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            trigger_type TEXT NOT NULL,
+            trigger_params TEXT NOT NULL,  # JSON stored as TEXT
+            action_params TEXT NOT NULL,  # JSON stored as TEXT
+            is_active BOOLEAN DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    
+    # Groups table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS device_groups (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            device_ids TEXT NOT NULL,  # JSON array of device IDs
+            is_active BOOLEAN DEFAULT 1
+        )
+    """)
+    
     conn.commit()
     conn.close()
 
-
-# Функция для сохранения устройства в базе данных
-def save_device(device_id, device_name, device_type):
+def save_device(device_info: DeviceInfo):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute(
         """
-        INSERT OR REPLACE INTO devices (id, name, type, is_registered)
-        VALUES (?, ?, ?, 1)
-    """,
-        (device_id, device_name, device_type),
+        INSERT OR REPLACE INTO devices 
+        (id, name, type, mac_address, model, is_active, is_paired, room)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            device_info.id,
+            device_info.name,
+            device_info.type,
+            device_info.mac_address,
+            device_info.model,
+            device_info.is_active,
+            device_info.is_paired,
+            getattr(device_info, 'room', None)
+        ),
     )
     conn.commit()
     conn.close()
@@ -138,66 +187,70 @@ def register_devices():
     return jsonify({"status": "success", "registered_devices": discovered_devices})
 
 
-# Маршрут для получения списка зарегистрированных устройств
+def get_device_capabilities(device: DeviceInfo) -> List[Dict]:
+    """Generate Yandex Smart Home capabilities based on device model"""
+    base_caps = [
+        {
+            "type": "devices.capabilities.on_off",
+            "retrievable": True,
+            "reportable": True
+        },
+        {
+            "type": "devices.capabilities.range",
+            "parameters": {
+                "instance": "fan_speed",
+                "unit": "unit.percent",
+                "range": {"min": 1, "max": 6, "precision": 1},
+            },
+            "retrievable": True,
+            "reportable": True
+        }
+    ]
+    
+    # Add temperature control for devices with heaters
+    if "S3" in device.model or "S4" in device.model:
+        base_caps.append({
+            "type": "devices.capabilities.range",
+            "parameters": {
+                "instance": "temperature",
+                "unit": "unit.temperature.celsius",
+                "range": {"min": 10, "max": 30, "precision": 1},
+            },
+            "retrievable": True,
+            "reportable": True
+        })
+    
+    # Add mode control for devices with recirculation
+    if "S3" in device.model:
+        base_caps.append({
+            "type": "devices.capabilities.mode",
+            "parameters": {
+                "instance": "work_mode",
+                "modes": [
+                    {"value": "auto"},
+                    {"value": "manual"},
+                    {"value": "recirculation"}
+                ],
+            },
+            "retrievable": True,
+            "reportable": True
+        })
+    
+    return base_caps
+
 @app.route("/devices", methods=["GET"])
 def get_devices():
-    registered_devices = load_devices()
-    discovered_devices = []
-    for device in registered_devices:
-        discovered_devices.append(
-            {
-                "id": device["id"],
-                "name": device["name"],
-                "type": device["type"],
-                "capabilities": [
-                    {
-                        "type": "devices.capabilities.on_off",
-                        "retrievable": True,
-                        "reportable": True,
-                    },
-                    {
-                        "type": "devices.capabilities.range",
-                        "parameters": {
-                            "instance": "temperature",
-                            "unit": "unit.temperature.celsius",
-                            "range": {"min": 10, "max": 30, "precision": 1},
-                        },
-                        "retrievable": True,
-                        "reportable": True,
-                    },
-                    {
-                        "type": "devices.capabilities.range",
-                        "parameters": {
-                            "instance": "fan_speed",
-                            "unit": "unit.percent",
-                            "range": {"min": 1, "max": 6, "precision": 1},
-                        },
-                        "retrievable": True,
-                        "reportable": True,
-                    },
-                    {
-                        "type": "devices.capabilities.mode",
-                        "parameters": {
-                            "instance": "work_mode",
-                            "modes": [{"value": "auto"}, {"value": "manual"}],
-                        },
-                        "retrievable": True,
-                        "reportable": True,
-                    },
-                    {
-                        "type": "devices.capabilities.timer",
-                        "parameters": {
-                            "instance": "off_timer",
-                            "unit": "unit.seconds",
-                            "range": {"min": 0, "max": 3600},
-                        },
-                        "retrievable": True,
-                        "reportable": True,
-                    },
-                ],
-            }
-        )
-    return jsonify({"devices": discovered_devices})
+    """Return all registered devices with their capabilities"""
+    devices = []
+    for device in device_manager.get_devices():
+        devices.append({
+            "id": device.id,
+            "name": device.name,
+            "type": "devices.types.ventilation",
+            "capabilities": get_device_capabilities(device),
+            "room": getattr(device, 'room', 'Unknown')
+        })
+    return jsonify({"devices": devices})
 
 
 # Функция для обновления состояния устройств
