@@ -1,5 +1,6 @@
 from flask import Flask, request, jsonify, abort
 from tion_btle import TionS4 as Breezer
+from tion_btle.device_manager import DeviceInfo, DeviceManager
 import requests
 from datetime import datetime, timedelta
 from time import sleep
@@ -11,6 +12,7 @@ logging.basicConfig(level=logging.DEBUG)
 _LOGGER = logging.getLogger(__name__)
 
 app = Flask(__name__)
+device_manager = DeviceManager()
 
 from typing import List, Dict, Optional
 from dataclasses import dataclass
