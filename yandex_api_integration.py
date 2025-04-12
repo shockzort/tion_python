@@ -1,11 +1,10 @@
 from flask import Flask, request, jsonify, abort
-from tion_btle import TionS4 as Breezer
 from tion_btle.device_manager import DeviceInfo, DeviceManager
 import requests
 from datetime import datetime, timedelta
-from time import sleep
-import sqlite3
-import asyncio
+from tion_btle.scenarist import Scenarist
+from typing import List, Dict
+
 import logging
 
 logging.basicConfig(level=logging.DEBUG)
@@ -14,33 +13,12 @@ _LOGGER = logging.getLogger(__name__)
 app = Flask(__name__)
 device_manager = DeviceManager()
 
-from typing import List, Dict, Optional
-from dataclasses import dataclass
-import json
-from datetime import datetime
-
 DB_PATH = "devices.db"
 
-from tion_btle.scenarist import Scenarist
 
 # Initialize managers
 device_manager = DeviceManager()
 scenarist = Scenarist(device_manager.db_path)
-
-
-def get_current_devices():
-    return []
-
-
-# Функция для загрузки устройств из базы данных
-def load_devices():
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT id, name, type FROM devices WHERE is_registered = 1")
-    rows = cursor.fetchall()
-    conn.close()
-    return [{"id": row[0], "name": row[1], "type": row[2]} for row in rows]
-
 
 # Словарь для хранения состояний устройств
 device_states = {}
@@ -95,36 +73,14 @@ def check_authorization():
     }
 
 
-# Автоматический поиск устройств
-def discover_devices():
-    discovered_devices = []
-    for device in get_current_devices():
-        discovered_devices.append(
-            {
-                "id": device.id,
-                "name": f"Tion {device.id}",
-                "type": "devices.types.ventilation",
-            }
-        )
-    return discovered_devices
-
-
-# Маршрут для поиска и регистрации устройств
-@app.route("/register", methods=["POST"])
-def register_devices():
-    discovered_devices = discover_devices()
-    for device in discovered_devices:
-        save_device(device["id"], device["name"], device["type"])
-    return jsonify({"status": "success", "registered_devices": discovered_devices})
-
-
+# Получить список возможностей устройства в формате Yandex Smart Home
 def get_device_capabilities(device: DeviceInfo) -> List[Dict]:
     """Generate Yandex Smart Home capabilities based on device model"""
     base_caps = [
         {
             "type": "devices.capabilities.on_off",
             "retrievable": True,
-            "reportable": True
+            "reportable": True,
         },
         {
             "type": "devices.capabilities.range",
@@ -134,163 +90,73 @@ def get_device_capabilities(device: DeviceInfo) -> List[Dict]:
                 "range": {"min": 1, "max": 6, "precision": 1},
             },
             "retrievable": True,
-            "reportable": True
-        }
+            "reportable": True,
+        },
     ]
-    
+
     # Add temperature control for devices with heaters
     if "S3" in device.model or "S4" in device.model:
-        base_caps.append({
-            "type": "devices.capabilities.range",
-            "parameters": {
-                "instance": "temperature",
-                "unit": "unit.temperature.celsius",
-                "range": {"min": 10, "max": 30, "precision": 1},
-            },
-            "retrievable": True,
-            "reportable": True
-        })
-    
+        base_caps.append(
+            {
+                "type": "devices.capabilities.range",
+                "parameters": {
+                    "instance": "temperature",
+                    "unit": "unit.temperature.celsius",
+                    "range": {"min": 10, "max": 30, "precision": 1},
+                },
+                "retrievable": True,
+                "reportable": True,
+            }
+        )
+
     # Add mode control for devices with recirculation
     if "S3" in device.model:
-        base_caps.append({
-            "type": "devices.capabilities.mode",
-            "parameters": {
-                "instance": "work_mode",
-                "modes": [
-                    {"value": "auto"},
-                    {"value": "manual"},
-                    {"value": "recirculation"}
-                ],
-            },
-            "retrievable": True,
-            "reportable": True
-        })
-    
+        base_caps.append(
+            {
+                "type": "devices.capabilities.mode",
+                "parameters": {
+                    "instance": "work_mode",
+                    "modes": [
+                        {"value": "auto"},
+                        {"value": "manual"},
+                        {"value": "recirculation"},
+                    ],
+                },
+                "retrievable": True,
+                "reportable": True,
+            }
+        )
+
     return base_caps
 
+
+# Получить список зарегистрированных устройств и их возможностей
 @app.route("/devices", methods=["GET"])
 def get_devices():
     """Return all registered devices with their capabilities"""
     devices = []
     for device in device_manager.get_devices():
-        devices.append({
-            "id": device.id,
-            "name": device.name,
-            "type": "devices.types.ventilation",
-            "capabilities": get_device_capabilities(device),
-            "room": getattr(device, 'room', 'Unknown')
-        })
+        devices.append(
+            {
+                "id": device.id,
+                "name": device.name,
+                "type": "devices.types.ventilation",
+                "capabilities": get_device_capabilities(device),
+                "room": getattr(device, "room", "Unknown"),
+            }
+        )
     return jsonify({"devices": devices})
-
-
-# Функция для обновления состояния устройств
-def update_device_state(device_id):
-    device = next((d for d in get_current_devices() if d.id == device_id), None)
-    if device:
-        state = {
-            "id": device_id,
-            "is_on": device.is_on,
-            "temperature": device.temperature,
-            "speed": device.speed,
-            "mode": device.mode,  # Режим работы (например, "auto", "manual")
-            "timer": device.timer,  # Таймер (если есть)
-        }
-        device_states[device_id] = state
-        return state
-    return None
 
 
 # Маршрут для получения состояния устройств
 @app.route("/state", methods=["POST"])
 def get_state():
-    states = []
-    for device_id in device_states:
-        state = update_device_state(device_id)
-        if state:
-            states.append(
-                {
-                    "id": device_id,
-                    "capabilities": [
-                        {
-                            "type": "devices.capabilities.on_off",
-                            "state": {"instance": "on", "value": state["is_on"]},
-                        },
-                        {
-                            "type": "devices.capabilities.range",
-                            "state": {
-                                "instance": "temperature",
-                                "value": state["temperature"],
-                            },
-                        },
-                        {
-                            "type": "devices.capabilities.range",
-                            "state": {"instance": "fan_speed", "value": state["speed"]},
-                        },
-                        {
-                            "type": "devices.capabilities.mode",
-                            "state": {"instance": "work_mode", "value": state["mode"]},
-                        },
-                        {
-                            "type": "devices.capabilities.timer",
-                            "state": {"instance": "off_timer", "value": state["timer"]},
-                        },
-                    ],
-                }
-            )
-    return jsonify({"devices": states})
+    # TODO: Получить актуальное состояние известных устройств (из кеша)
+    return
 
 
 # Маршрут для выполнения команд
 @app.route("/action", methods=["POST"])
 def action():
-    data = request.json
-    device_id = data["payload"]["devices"][0]["id"]
-    device = next((d for d in get_current_devices() if d.id == device_id), None)
-
-    if not device:
-        return jsonify({"error_code": "DEVICE_NOT_FOUND"}), 404
-
-    for capability in data["payload"]["devices"][0]["capabilities"]:
-        instance = capability["state"]["instance"]
-        value = capability["state"]["value"]
-
-        if instance == "on":
-            device.turn_on() if value else device.turn_off()
-        elif instance == "temperature":
-            device.set_temperature(value)
-        elif instance == "fan_speed":
-            device.set_speed(value)
-        elif instance == "work_mode":
-            device.set_mode(value)  # Установка режима ("auto", "manual")
-        elif instance == "off_timer":
-            device.set_timer(value)  # Установка таймера
-
-    update_device_state(device_id)
-    return jsonify({"status": "success"})
-
-
-def mac_list() -> list:
-    return ["14:90:A4:9F:82:EC", "D4:EA:F7:0E:60:D0", "B5:31:13:4E:B5:EB"]
-
-
-async def main_loop():
-    while True:
-
-        # Инициализация API Tion
-        for mac in mac_list():
-            api = Breezer(mac)
-
-            results = await asyncio.gather(api.pair())
-            for res in results:
-                for line in res:
-                    _LOGGER.info(line)
-
-            sleep(1.0)
-
-
-if __name__ == "__main__":
-    # init_db()  # Инициализация базы данных при запуске
-    # app.run(host="0.0.0.0", port=5000)
-    asyncio.run(main_loop())
-
+    # TODO: Выполнить действие над устройтом
+    return

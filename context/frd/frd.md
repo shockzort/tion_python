@@ -66,7 +66,7 @@
 - **Базы данных**:
   - SQLite (локальное хранение) / Redis (кеширование).
   - **Схема БД**:
-    - Устройства: `id, name, type, mac_address, model, is_active, is_paired, updated_date`.
+    - Устройства: `id, name, type, mac_address, model, is_active, is_paired, room, updated_date`.
     - Пользователи: `id, login, password_hash`.
     - Сценарии: `id, name, trigger_type, trigger_params, action_params`.
 - **Интеграция с TionAPI**:

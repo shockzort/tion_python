@@ -362,7 +362,7 @@ class Tion:
             raise e
 
         self.__notifications_enabled = True
-        _LOGGER.debug(f"_enable_notifications done")
+        _LOGGER.debug("_enable_notifications done")
         return
 
     @final

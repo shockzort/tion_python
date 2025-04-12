@@ -218,7 +218,7 @@ class DeviceManager:
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.execute(
                 """
-                SELECT id, name, type, mac_address, model, is_active, is_paired
+                SELECT id, name, type, mac_address, model, is_active, is_paired, room
                 FROM devices
                 WHERE id = ?
             """,
@@ -229,7 +229,15 @@ class DeviceManager:
 
     def update_device(self, device_id: str, **kwargs) -> bool:
         """Update device properties"""
-        valid_fields = {"name", "type", "is_active"}
+        valid_fields = {
+            "name",
+            "type",
+            "mac_address",
+            "model",
+            "is_active",
+            "is_paired",
+            "room",
+        }
         updates = {k: v for k, v in kwargs.items() if k in valid_fields}
 
         if not updates:
@@ -274,7 +282,7 @@ class DeviceManager:
         if not device_info:
             raise ValueError(f"Device {device_id} not found")
 
-        device_class = self.get_device_class(mock_ble_device.name)
+        device_class = self.get_device_class(device_info.name)
         device = device_class(device_info.mac_address)
 
         try:
