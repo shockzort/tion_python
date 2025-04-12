@@ -66,7 +66,7 @@
 - **Базы данных**:
   - SQLite (локальное хранение) / Redis (кеширование).
   - **Схема БД**:
-    - Устройства: `id, name, type, mac_address, updated_date`.
+    - Устройства: `id, name, type, mac_address, model, is_active, is_paired, updated_date`.
     - Пользователи: `id, login, password_hash`.
     - Сценарии: `id, name, trigger_type, trigger_params, action_params`.
 - **Интеграция с TionAPI**:
@@ -147,6 +147,7 @@ class Scenario {
 Device "1" *-- "0..*" Scenario
 User "1" -- "0..*" Scenario
 @enduml
+```
 
 ### 8.2. Диаграмма последовательностей (управление бризером)
 
@@ -164,3 +165,29 @@ Breezer --> Server: Статус: успех
 Server --> Alice: Ответ: "OK"
 Alice --> Пользователь: Озвучивание результата
 @enduml
+```
+
+### 8.3. Архитектурное решение
+
+```plantuml
+@startuml
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+Person(user, "Пользователь", "Управляет бризерами через голос/веб")
+System_Boundary(system, "Система управления") {
+    Container(web, "Веб-интерфейс", "Flask", "UI для управления")
+    Container(alice, "Яндекс Алиса", "Skill", "Голосовой интерфейс")
+    Container(ble, "BLE Gateway", "Python+Bleak", "Управление бризерами")
+    Container(db, "База данных", "SQLite+Redis", "Хранение данных")
+    Container(mqtt, "MQTT Broker", "Mosquitto", "Интеграция датчиков")
+}
+
+Rel(user, web, "HTTPS", "Локальный/удаленный доступ")
+Rel(user, alice, "Голосовые команды", "Яндекс Станция")
+Rel(web, ble, "gRPC", "Отправка команд")
+Rel(alice, web, "Webhooks", "REST API")
+Rel(ble, db, "SQLAlchemy", "Сохранение статуса")
+Rel(web, db, "ORM", "Чтение/запись")
+Rel(mqtt, ble, "MQTT", "Данные датчиков")
+@enduml
+```

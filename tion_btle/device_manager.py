@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from typing import List, Dict, Optional
+from typing import List, Optional
 from dataclasses import dataclass
 import sqlite3
 from bleak import BleakScanner
