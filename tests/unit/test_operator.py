@@ -94,11 +94,19 @@ def operator(mock_device_manager, mock_scenarist):
 @pytest.mark.asyncio
 async def test_operator_initialization(operator, mock_device_manager):
     """Test operator initialization loads devices correctly."""
-    operator._retries = 1
-    await operator.initialize()
-    mock_device_manager.get_devices.assert_called_once()
-    assert len(operator._devices) == 1
-    assert "device1" in operator._devices
+    # Setup mock device
+    mock_device = AsyncMock()
+    mock_device.connect = AsyncMock()
+    
+    # Patch TionS3 to return our mock device
+    with patch('tion_btle.operator.TionS3', return_value=mock_device):
+        operator._retries = 1  # Reduce retries for test speed
+        await operator.initialize(is_testing=True)
+        
+        mock_device_manager.get_devices.assert_called_once()
+        mock_device.connect.assert_called_once()
+        assert len(operator._devices) == 1
+        assert "device1" in operator._devices
 
 
 @pytest.mark.asyncio

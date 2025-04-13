@@ -35,16 +35,26 @@ class Operator:
         self._scenario_task: Optional[asyncio.Task] = None
         self._retries = 3
 
-    async def initialize(self) -> None:
-        """Initialize operator with connected devices."""
+    async def initialize(self, is_testing: bool = False) -> None:
+        """Initialize operator with connected devices.
+        
+        Args:
+            is_testing: If True, skips sleep delays for faster testing
+        """
         devices = self.device_manager.get_devices()
         for device in devices:
-            await self._load_device(device, self._retries)
+            await self._load_device(device, self._retries, is_testing)
 
     async def _load_device(
-        self, device_info: DeviceInfo, retries: int = 3
+        self, device_info: DeviceInfo, retries: int = 3, is_testing: bool = False
     ) -> Optional[Tion]:
-        """Load and connect to a Tion device with retry logic."""
+        """Load and connect to a Tion device with retry logic.
+        
+        Args:
+            device_info: Device information
+            retries: Number of connection attempts
+            is_testing: If True, skips sleep delays for faster testing
+        """
         device_class = {"TionS3": TionS3, "TionLite": TionLite, "TionS4": TionS4}.get(
             device_info.type, Tion
         )
@@ -61,7 +71,7 @@ class Operator:
                 _LOGGER.warning(
                     f"Connection attempt {attempt}/{retries} failed for {device_info.id}: {str(e)}"
                 )
-                if attempt < retries:
+                if attempt < retries and not is_testing:
                     await asyncio.sleep(2**attempt)  # Exponential backoff
 
         _LOGGER.error(
