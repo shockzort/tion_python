@@ -99,7 +99,7 @@ async def test_device_loading(operator, mock_device_manager):
     """Test device loading with retry logic."""
     mock_device = AsyncMock()
     mock_device.connect.side_effect = [Exception("Failed"), None]
-    
+
     with patch('tion_btle.operator.TionS3', return_value=mock_device):
         device = await operator._load_device(mock_device_manager.get_device("device1"))
         assert device is not None
@@ -118,7 +118,7 @@ async def test_device_polling(operator):
 
     # Test single poll iteration
     await operator._poll_devices(0.1)
-    
+
     assert "device1" in operator._status_cache
     status = operator._status_cache["device1"]
     assert status.state == "on"
@@ -133,7 +133,7 @@ async def test_device_reconnection(operator):
     mock_device.connection_status = False
 
     await operator._poll_devices(0.1)
-    
+
     assert mock_device.connect.called
     assert "device1" in operator._status_cache
 
@@ -143,7 +143,7 @@ async def test_execute_scenario_success(operator, mock_scenarist):
     mock_device = AsyncMock()
     mock_device.set.return_value = True
     operator._devices["device1"] = mock_device
-    
+
     result = await operator.execute_scenario(1)
     assert result is True
     assert mock_scenarist.get_scenario().last_executed is not None
@@ -155,7 +155,7 @@ async def test_execute_scenario_failure(operator, mock_scenarist):
     mock_device = AsyncMock()
     mock_device.set.side_effect = Exception("Failed")
     operator._devices["device1"] = mock_device
-    
+
     result = await operator.execute_scenario(1)
     assert result is False
     assert mock_scenarist.get_scenario().last_executed is not None
@@ -182,7 +182,7 @@ async def test_capability_checking(operator, mock_scenarist, mock_device_manager
         'light_control': False,
         'mode_control': False
     }
-    
+
     result = await operator.execute_scenario(1)
     assert result is False
 
@@ -197,7 +197,7 @@ async def test_time_based_trigger(operator):
         action_params={"device_id": "device1", "command": "turn_on"},
         is_active=True
     )
-    
+
     assert await operator._should_execute_scenario(scenario) is True
 
 @pytest.mark.asyncio
@@ -216,7 +216,7 @@ async def test_sensor_based_trigger(operator):
         action_params={"device_id": "device1", "command": "turn_on"},
         is_active=True
     )
-    
+
     operator._status_cache["device1"] = DeviceStatus(
         device_id="device1",
         state="on",
@@ -224,7 +224,7 @@ async def test_sensor_based_trigger(operator):
         heater_status="on",
         last_updated=datetime.now()
     )
-    
+
     assert await operator._should_execute_scenario(scenario) is True
 
 @pytest.mark.asyncio
@@ -234,7 +234,7 @@ async def test_operator_shutdown(operator):
     operator._devices["device1"] = mock_device
     operator._polling_task = asyncio.create_task(asyncio.sleep(3600))
     operator._scenario_task = asyncio.create_task(asyncio.sleep(3600))
-    
+
     await operator.shutdown()
     assert mock_device.disconnect.called
     assert operator._polling_task.cancelled()
