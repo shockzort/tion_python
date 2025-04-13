@@ -11,6 +11,7 @@ from tion_btle.scenarist import Scenario, Scenarist
 
 _LOGGER = logging.getLogger(__name__)
 
+
 @dataclass
 class DeviceStatus:
     device_id: str
@@ -20,9 +21,10 @@ class DeviceStatus:
     last_updated: datetime
     error: Optional[str] = None
 
+
 class Operator:
     """Central operator for managing Tion devices and scenarios."""
-    
+
     def __init__(self, db_path: str = "devices.db"):
         self.device_manager = DeviceManager(db_path)
         self.scenarist = Scenarist(db_path)
@@ -31,23 +33,24 @@ class Operator:
         self._scenario_cache: Dict[int, Scenario] = {}
         self._polling_task: Optional[asyncio.Task] = None
         self._scenario_task: Optional[asyncio.Task] = None
+        self._retries = 3
 
     async def initialize(self) -> None:
         """Initialize operator with connected devices."""
         devices = self.device_manager.get_devices()
         for device in devices:
-            await self._load_device(device)
+            await self._load_device(device, self._retries)
 
-    async def _load_device(self, device_info: DeviceInfo, retries: int = 3) -> Optional[Tion]:
+    async def _load_device(
+        self, device_info: DeviceInfo, retries: int = 3
+    ) -> Optional[Tion]:
         """Load and connect to a Tion device with retry logic."""
-        device_class = {
-            "TionS3": TionS3,
-            "TionLite": TionLite,
-            "TionS4": TionS4
-        }.get(device_info.type, Tion)
+        device_class = {"TionS3": TionS3, "TionLite": TionLite, "TionS4": TionS4}.get(
+            device_info.type, Tion
+        )
 
         device = device_class(device_info.mac_address)
-        
+
         for attempt in range(1, retries + 1):
             try:
                 await device.connect()
@@ -59,14 +62,16 @@ class Operator:
                     f"Connection attempt {attempt}/{retries} failed for {device_info.id}: {str(e)}"
                 )
                 if attempt < retries:
-                    await asyncio.sleep(2 ** attempt)  # Exponential backoff
-                
-        _LOGGER.error(f"Failed to connect to device {device_info.id} after {retries} attempts")
+                    await asyncio.sleep(2**attempt)  # Exponential backoff
+
+        _LOGGER.error(
+            f"Failed to connect to device {device_info.id} after {retries} attempts"
+        )
         return None
 
     async def start_polling(self, interval: int = 60, run_once: bool = False) -> None:
         """Start device status polling.
-        
+
         Args:
             interval: Time between polls in seconds
             run_once: If True, poll once and stop. If False, poll continuously.
@@ -78,7 +83,7 @@ class Operator:
 
     async def _poll_devices(self, interval: int, run_once: bool = False) -> None:
         """Poll all devices with reconnection logic.
-        
+
         Args:
             interval: Time between polls in seconds
             run_once: If True, poll once and return. If False, poll continuously.
@@ -86,7 +91,7 @@ class Operator:
         while True:
             try:
                 active_devices = await self.device_manager.get_connected_devices()
-                
+
                 for device_id, device_info in active_devices.items():
                     try:
                         # Get or create device instance
@@ -95,40 +100,42 @@ class Operator:
                             device = await self._load_device(device_info)
                             if not device:
                                 continue
-                        
+
                         # Check connection status
                         if not device.connection_status:
-                            _LOGGER.warning(f"Device {device_id} disconnected, attempting to reconnect")
+                            _LOGGER.warning(
+                                f"Device {device_id} disconnected, attempting to reconnect"
+                            )
                             await device.connect()
-                            
+
                         # Get fresh status
                         status = await device.get()
                         self._status_cache[device_id] = DeviceStatus(
                             device_id=device_id,
-                            state=status.get('state', 'unknown'),
-                            fan_speed=status.get('fan_speed', 0),
-                            heater_status=status.get('heater', 'off'),
-                            last_updated=datetime.now()
+                            state=status.get("state", "unknown"),
+                            fan_speed=status.get("fan_speed", 0),
+                            heater_status=status.get("heater", "off"),
+                            last_updated=datetime.now(),
                         )
-                        
+
                     except Exception as e:
                         _LOGGER.error(f"Failed to poll device {device_id}: {str(e)}")
                         self._status_cache[device_id] = DeviceStatus(
                             device_id=device_id,
-                            state='error',
+                            state="error",
                             fan_speed=0,
-                            heater_status='error',
+                            heater_status="error",
                             last_updated=datetime.now(),
-                            error=str(e)
+                            error=str(e),
                         )
-                        
+
                         # Try to reconnect on next iteration
                         if device_id in self._devices:
                             del self._devices[device_id]
-                            
+
             except Exception as e:
                 _LOGGER.error(f"Polling error: {str(e)}")
-            
+
             if run_once:
                 break
             await asyncio.sleep(interval)
@@ -142,10 +149,10 @@ class Operator:
             status = await device.get()
             self._status_cache[device_id] = DeviceStatus(
                 device_id=device_id,
-                state=status['state'],
-                fan_speed=status['fan_speed'],
-                heater_status=status['heater'],
-                last_updated=datetime.now()
+                state=status["state"],
+                fan_speed=status["fan_speed"],
+                heater_status=status["heater"],
+                last_updated=datetime.now(),
             )
         return self._status_cache[device_id]
 
@@ -160,36 +167,40 @@ class Operator:
             _LOGGER.error(f"Invalid action params for scenario {scenario_id}")
             return False
 
-        device_id = scenario.action_params.get('device_id')
+        device_id = scenario.action_params.get("device_id")
         device = self._devices.get(device_id)
         if not device:
-            _LOGGER.warning(f"Device {device_id} not connected for scenario {scenario_id}")
+            _LOGGER.warning(
+                f"Device {device_id} not connected for scenario {scenario_id}"
+            )
             return False
 
         try:
             # Check device capabilities before executing
             capabilities = self.device_manager.get_device_capabilities(device_id)
-            command = scenario.action_params['command']
-            
-            if command == 'set_temp' and not capabilities['temperature_control']:
+            command = scenario.action_params["command"]
+
+            if command == "set_temp" and not capabilities["temperature_control"]:
                 _LOGGER.error(f"Device {device_id} doesn't support temperature control")
                 return False
-                
-            if command == 'set_mode' and not capabilities['mode_control']:
+
+            if command == "set_mode" and not capabilities["mode_control"]:
                 _LOGGER.error(f"Device {device_id} doesn't support mode control")
                 return False
 
             # Execute the command
             success = await device.set(scenario.action_params)
-            
+
             # Update scenario execution tracking
             scenario.last_executed = datetime.now()
             scenario.execution_count += 1
             scenario.last_status = success
-            
-            _LOGGER.info(f"Executed scenario {scenario_id} on device {device_id} - {'Success' if success else 'Failed'}")
+
+            _LOGGER.info(
+                f"Executed scenario {scenario_id} on device {device_id} - {'Success' if success else 'Failed'}"
+            )
             return success
-            
+
         except Exception as e:
             _LOGGER.error(f"Failed to execute scenario {scenario_id}: {str(e)}")
             scenario.last_executed = datetime.now()
@@ -226,7 +237,7 @@ class Operator:
             now = datetime.now().time()
             start = datetime.strptime(scenario.trigger_params["start"], "%H:%M").time()
             end = datetime.strptime(scenario.trigger_params["end"], "%H:%M").time()
-            
+
             if start <= end:
                 return start <= now <= end
             else:  # Overnight range
@@ -237,19 +248,19 @@ class Operator:
             device_id = scenario.trigger_params.get("device_id")
             if not device_id:
                 return False
-                
+
             status = await self.get_device_status(device_id)
             if not status:
                 return False
-                
+
             sensor_type = scenario.trigger_params["sensor"]
             threshold = scenario.trigger_params["threshold"]
             comparison = scenario.trigger_params.get("comparison", "gt")
-            
+
             current_value = getattr(status, sensor_type, None)
             if current_value is None:
                 return False
-                
+
             if comparison == "gt":
                 return current_value > threshold
             elif comparison == "lt":
@@ -284,14 +295,14 @@ class Operator:
                 await self._polling_task
             except asyncio.CancelledError:
                 pass
-                
+
         if self._scenario_task:
             self._scenario_task.cancel()
             try:
                 await self._scenario_task
             except asyncio.CancelledError:
                 pass
-        
+
         for device_id, device in list(self._devices.items()):
             try:
                 await device.disconnect()

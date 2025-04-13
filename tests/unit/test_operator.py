@@ -8,6 +8,7 @@ from tion_btle.device_manager import DeviceInfo
 from tion_btle.scenarist import Scenario
 from tion_btle import TionS3, TionLite, TionS4
 
+
 @pytest.fixture
 def mock_device_manager():
     manager = MagicMock()
@@ -20,7 +21,7 @@ def mock_device_manager():
             mac_address="00:11:22:33:44:55",
             model="S3",
             is_active=True,
-            is_paired=True
+            is_paired=True,
         )
     ]
     manager.get_device.return_value = DeviceInfo(
@@ -30,7 +31,7 @@ def mock_device_manager():
         mac_address="00:11:22:33:44:55",
         model="S3",
         is_active=True,
-        is_paired=True
+        is_paired=True,
     )
     manager.get_connected_devices.return_value = {
         "device1": DeviceInfo(
@@ -40,17 +41,18 @@ def mock_device_manager():
             mac_address="00:11:22:33:44:55",
             model="S3",
             is_active=True,
-            is_paired=True
+            is_paired=True,
         )
     }
     manager.get_device_capabilities.return_value = {
-        'fan_control': True,
-        'heater_control': True,
-        'temperature_control': True,
-        'light_control': False,
-        'mode_control': False
+        "fan_control": True,
+        "heater_control": True,
+        "temperature_control": True,
+        "light_control": False,
+        "mode_control": False,
     }
     return manager
+
 
 @pytest.fixture
 def mock_scenarist():
@@ -62,7 +64,7 @@ def mock_scenarist():
         trigger_type="time",
         trigger_params={"start": "08:00", "end": "18:00"},
         action_params={"device_id": "device1", "command": "turn_on"},
-        is_active=True
+        is_active=True,
     )
     scenarist.get_scenarios.return_value = [
         Scenario(
@@ -71,28 +73,33 @@ def mock_scenarist():
             trigger_type="time",
             trigger_params={"start": "08:00", "end": "18:00"},
             action_params={"device_id": "device1", "command": "turn_on"},
-            is_active=True
+            is_active=True,
         )
     ]
     scenarist.validate_action_params.return_value = True
     return scenarist
 
+
 @pytest.fixture
 def operator(mock_device_manager, mock_scenarist):
-    with patch('tion_btle.operator.DeviceManager', return_value=mock_device_manager), \
-         patch('tion_btle.operator.Scenarist', return_value=mock_scenarist):
+    with patch(
+        "tion_btle.operator.DeviceManager", return_value=mock_device_manager
+    ), patch("tion_btle.operator.Scenarist", return_value=mock_scenarist):
         op = Operator(db_path=":memory:")
         op._devices = {"device1": AsyncMock()}
         op._status_cache = {}
         yield op
 
+
 @pytest.mark.asyncio
 async def test_operator_initialization(operator, mock_device_manager):
     """Test operator initialization loads devices correctly."""
+    operator._retries = 1
     await operator.initialize()
     mock_device_manager.get_devices.assert_called_once()
     assert len(operator._devices) == 1
     assert "device1" in operator._devices
+
 
 @pytest.mark.asyncio
 async def test_device_loading(operator, mock_device_manager):
@@ -100,22 +107,19 @@ async def test_device_loading(operator, mock_device_manager):
     mock_device = AsyncMock()
     mock_device.connect.side_effect = [Exception("Failed"), None]
 
-    with patch('tion_btle.operator.TionS3', return_value=mock_device):
+    with patch("tion_btle.operator.TionS3", return_value=mock_device):
         device = await operator._load_device(mock_device_manager.get_device("device1"))
         assert device is not None
         assert mock_device.connect.call_count == 2
+
 
 @pytest.mark.asyncio
 async def test_device_polling(operator, mock_device_manager):
     """Test device polling updates status cache."""
     mock_device = operator._devices["device1"]
-    mock_device.get.return_value = {
-        "state": "on",
-        "fan_speed": 3,
-        "heater": "on"
-    }
+    mock_device.get.return_value = {"state": "on", "fan_speed": 3, "heater": "on"}
     mock_device.connection_status = True
-    
+
     # Mock get_connected_devices to return our test device
     mock_device_manager.get_connected_devices.return_value = {
         "device1": DeviceInfo(
@@ -125,7 +129,7 @@ async def test_device_polling(operator, mock_device_manager):
             mac_address="00:11:22:33:44:55",
             model="S3",
             is_active=True,
-            is_paired=True
+            is_paired=True,
         )
     }
 
@@ -137,6 +141,7 @@ async def test_device_polling(operator, mock_device_manager):
     assert status.state == "on"
     assert status.fan_speed == 3
     assert status.heater_status == "on"
+
 
 @pytest.mark.asyncio
 async def test_device_reconnection(operator):
@@ -150,6 +155,7 @@ async def test_device_reconnection(operator):
     assert mock_device.connect.called
     assert "device1" in operator._status_cache
 
+
 @pytest.mark.asyncio
 async def test_execute_scenario_success(operator, mock_scenarist):
     """Test successful scenario execution."""
@@ -161,6 +167,7 @@ async def test_execute_scenario_success(operator, mock_scenarist):
     assert result is True
     assert mock_scenarist.get_scenario().last_executed is not None
     assert mock_scenarist.get_scenario().last_status is True
+
 
 @pytest.mark.asyncio
 async def test_execute_scenario_failure(operator, mock_scenarist):
@@ -174,6 +181,7 @@ async def test_execute_scenario_failure(operator, mock_scenarist):
     assert mock_scenarist.get_scenario().last_executed is not None
     assert mock_scenarist.get_scenario().last_status is False
 
+
 @pytest.mark.asyncio
 async def test_scenario_validation(operator, mock_scenarist):
     """Test scenario validation before execution."""
@@ -181,23 +189,25 @@ async def test_scenario_validation(operator, mock_scenarist):
     result = await operator.execute_scenario(1)
     assert result is False
 
+
 @pytest.mark.asyncio
 async def test_capability_checking(operator, mock_scenarist, mock_device_manager):
     """Test device capability checking before scenario execution."""
     mock_scenarist.get_scenario().action_params = {
         "device_id": "device1",
-        "command": "set_mode"  # Not supported by S3
+        "command": "set_mode",  # Not supported by S3
     }
     mock_device_manager.get_device_capabilities.return_value = {
-        'fan_control': True,
-        'heater_control': True,
-        'temperature_control': True,
-        'light_control': False,
-        'mode_control': False
+        "fan_control": True,
+        "heater_control": True,
+        "temperature_control": True,
+        "light_control": False,
+        "mode_control": False,
     }
 
     result = await operator.execute_scenario(1)
     assert result is False
+
 
 @pytest.mark.asyncio
 async def test_time_based_trigger(operator):
@@ -208,10 +218,11 @@ async def test_time_based_trigger(operator):
         trigger_type="time",
         trigger_params={"start": "00:00", "end": "23:59"},  # Always active
         action_params={"device_id": "device1", "command": "turn_on"},
-        is_active=True
+        is_active=True,
     )
 
     assert await operator._should_execute_scenario(scenario) is True
+
 
 @pytest.mark.asyncio
 async def test_sensor_based_trigger(operator):
@@ -224,10 +235,10 @@ async def test_sensor_based_trigger(operator):
             "device_id": "device1",
             "sensor": "fan_speed",
             "threshold": 3,
-            "comparison": "gt"
+            "comparison": "gt",
         },
         action_params={"device_id": "device1", "command": "turn_on"},
-        is_active=True
+        is_active=True,
     )
 
     operator._status_cache["device1"] = DeviceStatus(
@@ -235,10 +246,11 @@ async def test_sensor_based_trigger(operator):
         state="on",
         fan_speed=4,  # Above threshold
         heater_status="on",
-        last_updated=datetime.now()
+        last_updated=datetime.now(),
     )
 
     assert await operator._should_execute_scenario(scenario) is True
+
 
 @pytest.mark.asyncio
 async def test_operator_shutdown(operator):
