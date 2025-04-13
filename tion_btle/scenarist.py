@@ -4,6 +4,7 @@ from dataclasses import dataclass, asdict
 from typing import List, Dict, Optional
 from datetime import datetime
 
+
 @dataclass
 class Scenario:
     id: int
@@ -14,6 +15,7 @@ class Scenario:
     is_active: bool = True
     created_at: datetime = None
 
+
 class Scenarist:
     def __init__(self, db_path: str = "devices.db"):
         self.db_path = db_path
@@ -22,7 +24,8 @@ class Scenarist:
     def _init_db(self) -> None:
         """Initialize scenarios table"""
         with sqlite3.connect(self.db_path) as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 CREATE TABLE IF NOT EXISTS scenarios (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT NOT NULL,
@@ -32,7 +35,8 @@ class Scenarist:
                     is_active BOOLEAN DEFAULT 1,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
-            """)
+            """
+            )
             conn.commit()
 
     def create_scenario(self, scenario: Scenario) -> int:
@@ -48,8 +52,8 @@ class Scenarist:
                     scenario.name,
                     scenario.trigger_type,
                     json.dumps(scenario.trigger_params),
-                    json.dumps(scenario.action_params)
-                )
+                    json.dumps(scenario.action_params),
+                ),
             )
             scenario_id = cursor.fetchone()[0]
             conn.commit()
@@ -68,15 +72,17 @@ class Scenarist:
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.execute(query)
             for row in cursor.fetchall():
-                scenarios.append(Scenario(
-                    id=row[0],
-                    name=row[1],
-                    trigger_type=row[2],
-                    trigger_params=json.loads(row[3]),
-                    action_params=json.loads(row[4]),
-                    is_active=bool(row[5]),
-                    created_at=row[6]
-                ))
+                scenarios.append(
+                    Scenario(
+                        id=row[0],
+                        name=row[1],
+                        trigger_type=row[2],
+                        trigger_params=json.loads(row[3]),
+                        action_params=json.loads(row[4]),
+                        is_active=bool(row[5]),
+                        created_at=row[6],
+                    )
+                )
         return scenarios
 
     def get_scenario(self, scenario_id: int) -> Optional[Scenario]:
@@ -88,7 +94,7 @@ class Scenarist:
                 FROM scenarios
                 WHERE id = ?
                 """,
-                (scenario_id,)
+                (scenario_id,),
             )
             row = cursor.fetchone()
             if not row:
@@ -100,12 +106,18 @@ class Scenarist:
                 trigger_params=json.loads(row[3]),
                 action_params=json.loads(row[4]),
                 is_active=bool(row[5]),
-                created_at=row[6]
+                created_at=row[6],
             )
 
     def update_scenario(self, scenario_id: int, **kwargs) -> bool:
         """Update scenario properties"""
-        valid_fields = {"name", "trigger_type", "trigger_params", "action_params", "is_active"}
+        valid_fields = {
+            "name",
+            "trigger_type",
+            "trigger_params",
+            "action_params",
+            "is_active",
+        }
         updates = {k: v for k, v in kwargs.items() if k in valid_fields}
 
         if not updates:
@@ -126,7 +138,7 @@ class Scenarist:
                 SET {set_clause}
                 WHERE id = ?
                 """,
-                params
+                params,
             )
             conn.commit()
             return conn.total_changes > 0
@@ -140,18 +152,7 @@ class Scenarist:
                 SET is_active = 0
                 WHERE id = ?
                 """,
-                (scenario_id,)
+                (scenario_id,),
             )
             conn.commit()
             return conn.total_changes > 0
-
-    def run_scenario(self, scenario_id: int) -> bool:
-        """Execute scenario actions"""
-        scenario = self.get_scenario(scenario_id)
-        if not scenario or not scenario.is_active:
-            return False
-
-        # TODO: Implement actual scenario execution
-        # This will depend on your automation engine implementation
-        print(f"Running scenario {scenario_id}: {scenario.name}")
-        return True
