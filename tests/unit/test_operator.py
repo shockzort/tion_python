@@ -106,7 +106,7 @@ async def test_device_loading(operator, mock_device_manager):
         assert mock_device.connect.call_count == 2
 
 @pytest.mark.asyncio
-async def test_device_polling(operator):
+async def test_device_polling(operator, mock_device_manager):
     """Test device polling updates status cache."""
     mock_device = operator._devices["device1"]
     mock_device.get.return_value = {
@@ -115,6 +115,19 @@ async def test_device_polling(operator):
         "heater": "on"
     }
     mock_device.connection_status = True
+    
+    # Mock get_connected_devices to return our test device
+    mock_device_manager.get_connected_devices.return_value = {
+        "device1": DeviceInfo(
+            id="device1",
+            name="Test Device 1",
+            type="TionS3",
+            mac_address="00:11:22:33:44:55",
+            model="S3",
+            is_active=True,
+            is_paired=True
+        )
+    }
 
     # Test single poll iteration
     await operator._poll_devices(0.1, run_once=True)
