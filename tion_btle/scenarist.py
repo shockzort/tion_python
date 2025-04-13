@@ -14,6 +14,9 @@ class Scenario:
     action_params: dict
     is_active: bool = True
     created_at: datetime = None
+    last_executed: Optional[datetime] = None
+    execution_count: int = 0
+    last_status: Optional[bool] = None  # True=success, False=failure
 
 
 class Scenarist:
@@ -67,6 +70,7 @@ class Scenarist:
         """
         if active_only:
             query += " WHERE is_active = 1"
+        query += " ORDER BY created_at DESC"
 
         scenarios = []
         with sqlite3.connect(self.db_path) as conn:
@@ -84,6 +88,26 @@ class Scenarist:
                     )
                 )
         return scenarios
+
+    def get_scenarios_for_device(self, device_id: str) -> List[Scenario]:
+        """Get scenarios targeting a specific device"""
+        scenarios = self.get_scenarios()
+        return [
+            s for s in scenarios 
+            if s.action_params.get('device_id') == device_id
+        ]
+
+    def validate_action_params(self, action_params: dict) -> bool:
+        """Validate scenario action parameters structure"""
+        required = ['device_id', 'command']
+        if not all(k in action_params for k in required):
+            return False
+            
+        valid_commands = ['turn_on', 'turn_off', 'set_speed', 'set_temp', 'set_mode']
+        if action_params['command'] not in valid_commands:
+            return False
+            
+        return True
 
     def get_scenario(self, scenario_id: int) -> Optional[Scenario]:
         """Get single scenario by ID"""

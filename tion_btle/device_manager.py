@@ -142,10 +142,31 @@ class DeviceManager:
         """
         if active_only:
             query += " WHERE is_active = 1"
+        query += " ORDER BY name"
 
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.execute(query)
             return [DeviceInfo(*row) for row in cursor.fetchall()]
+
+    async def get_connected_devices(self) -> Dict[str, DeviceInfo]:
+        """Get dictionary of currently connected devices {id: DeviceInfo}"""
+        devices = self.get_devices()
+        return {d.id: d for d in devices if d.is_active and d.is_paired}
+
+    def get_device_capabilities(self, device_id: str) -> Dict[str, bool]:
+        """Get device capabilities based on its type"""
+        device = self.get_device(device_id)
+        if not device:
+            return {}
+            
+        capabilities = {
+            'fan_control': True,
+            'heater_control': 'S3' in device.type or 'S4' in device.type,
+            'temperature_control': 'S3' in device.type or 'S4' in device.type,
+            'light_control': 'Lite' in device.type,
+            'mode_control': 'S4' in device.type
+        }
+        return capabilities
 
     def get_device_groups(self, active_only: bool = True) -> List[Dict]:
         """Get list of device groups"""
