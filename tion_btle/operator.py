@@ -64,15 +64,25 @@ class Operator:
         _LOGGER.error(f"Failed to connect to device {device_info.id} after {retries} attempts")
         return None
 
-    async def start_polling(self, interval: int = 60) -> None:
-        """Start background polling of device statuses."""
+    async def start_polling(self, interval: int = 60, run_once: bool = False) -> None:
+        """Start device status polling.
+        
+        Args:
+            interval: Time between polls in seconds
+            run_once: If True, poll once and stop. If False, poll continuously.
+        """
         if self._polling_task and not self._polling_task.done():
             self._polling_task.cancel()
 
-        self._polling_task = asyncio.create_task(self._poll_devices(interval))
+        self._polling_task = asyncio.create_task(self._poll_devices(interval, run_once))
 
-    async def _poll_devices(self, interval: int) -> None:
-        """Periodically poll all devices with reconnection logic."""
+    async def _poll_devices(self, interval: int, run_once: bool = False) -> None:
+        """Poll all devices with reconnection logic.
+        
+        Args:
+            interval: Time between polls in seconds
+            run_once: If True, poll once and return. If False, poll continuously.
+        """
         while True:
             try:
                 active_devices = await self.device_manager.get_connected_devices()
@@ -119,6 +129,8 @@ class Operator:
             except Exception as e:
                 _LOGGER.error(f"Polling error: {str(e)}")
             
+            if run_once:
+                break
             await asyncio.sleep(interval)
 
     async def get_device_status(self, device_id: str) -> DeviceStatus:

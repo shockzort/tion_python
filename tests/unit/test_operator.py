@@ -117,7 +117,7 @@ async def test_device_polling(operator):
     mock_device.connection_status = True
 
     # Test single poll iteration
-    await operator._poll_devices(0.1)
+    await operator._poll_devices(0.1, run_once=True)
 
     assert "device1" in operator._status_cache
     status = operator._status_cache["device1"]
