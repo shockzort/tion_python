@@ -61,12 +61,31 @@ def operator(mock_device_manager, mock_scenarist):
 @pytest.mark.asyncio
 async def test_operator_initialization(operator, mock_device_manager, mock_scenarist):
     """Test operator initialization loads devices correctly."""
+    # Setup mock database
+    mock_device_manager._init_db = MagicMock()
+    mock_device_manager.get_devices.return_value = [
+        DeviceInfo(
+            id="device1",
+            name="Test Device 1",
+            type="TionS3",
+            mac_address="00:11:22:33:44:55",
+            model="S3",
+            is_active=True,
+            is_paired=True
+        )
+    ]
+    
     with patch('tion_btle.operator.DeviceManager', return_value=mock_device_manager), \
-         patch('tion_btle.operator.Scenarist', return_value=mock_scenarist):
+         patch('tion_btle.operator.Scenarist', return_value=mock_scenarist), \
+         patch('tion_btle.operator.TionS3') as mock_tion:
+        
+        mock_device = AsyncMock()
+        mock_tion.return_value = mock_device
         
         await operator.initialize()
         assert len(operator._devices) == 1
         assert "device1" in operator._devices
+        mock_device.connect.assert_called_once()
 
 @pytest.mark.asyncio
 async def test_device_loading(operator, mock_device_manager):
@@ -92,12 +111,21 @@ async def test_device_polling(operator, mock_device_manager):
     
     operator._devices["device1"] = mock_device
     
-    await operator._poll_devices(1)
+    # Create task but cancel it after short delay
+    polling_task = asyncio.create_task(operator._poll_devices(0.1))
+    await asyncio.sleep(0.15)  # Let it run one iteration
+    polling_task.cancel()
+    try:
+        await polling_task
+    except asyncio.CancelledError:
+        pass
+    
     assert "device1" in operator._status_cache
     status = operator._status_cache["device1"]
     assert status.state == "on"
     assert status.fan_speed == 3
     assert status.heater_status == "on"
+    mock_device.get.assert_called_once()
 
 @pytest.mark.asyncio
 async def test_device_reconnection(operator, mock_device_manager):
@@ -108,9 +136,18 @@ async def test_device_reconnection(operator, mock_device_manager):
     
     operator._devices["device1"] = mock_device
     
-    await operator._poll_devices(1)
+    # Create task but cancel it after short delay
+    polling_task = asyncio.create_task(operator._poll_devices(0.1))
+    await asyncio.sleep(0.15)  # Let it run one iteration
+    polling_task.cancel()
+    try:
+        await polling_task
+    except asyncio.CancelledError:
+        pass
+    
     assert mock_device.connect.called
     assert "device1" in operator._status_cache
+    assert mock_device.get.call_count == 2  # First fails, second succeeds
 
 @pytest.mark.asyncio
 async def test_execute_scenario_success(operator, mock_scenarist):
