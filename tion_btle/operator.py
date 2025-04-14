@@ -35,21 +35,21 @@ class Operator:
         self._scenario_task: Optional[asyncio.Task] = None
         self._retries = 3
 
-    async def initialize(self, is_testing: bool = False) -> None:
+    async def initialize(self) -> None:
         """Initialize operator with connected devices.
-        
+
         Args:
             is_testing: If True, skips sleep delays for faster testing
         """
         devices = self.device_manager.get_devices()
         for device in devices:
-            await self._load_device(device, self._retries, is_testing)
+            await self._load_device(device, self._retries)
 
     async def _load_device(
-        self, device_info: DeviceInfo, retries: int = 3, is_testing: bool = False
+        self, device_info: DeviceInfo, retries: int = 3
     ) -> Optional[Tion]:
         """Load and connect to a Tion device with retry logic.
-        
+
         Args:
             device_info: Device information
             retries: Number of connection attempts
@@ -71,7 +71,7 @@ class Operator:
                 _LOGGER.warning(
                     f"Connection attempt {attempt}/{retries} failed for {device_info.id}: {str(e)}"
                 )
-                if attempt < retries and not is_testing:
+                if attempt < retries:
                     await asyncio.sleep(2**attempt)  # Exponential backoff
 
         _LOGGER.error(
@@ -79,75 +79,79 @@ class Operator:
         )
         return None
 
-    async def start_polling(self, interval: int = 60, run_once: bool = False) -> None:
+    async def start_polling(self, interval: int = 60) -> None:
         """Start device status polling.
 
         Args:
             interval: Time between polls in seconds
-            run_once: If True, poll once and stop. If False, poll continuously.
         """
         if self._polling_task and not self._polling_task.done():
             self._polling_task.cancel()
 
-        self._polling_task = asyncio.create_task(self._poll_devices(interval, run_once))
+        self._polling_task = asyncio.create_task(self._poll_devices(interval))
 
-    async def _poll_devices(self, interval: int, run_once: bool = False) -> None:
+    async def _update_devices_status(self):
+        """Update device status.
+
+        Args:
+            none
+        """
+
+        try:
+            active_devices = self.device_manager.get_connected_devices()
+
+            for device_id, device_info in active_devices.items():
+                try:
+                    # Get or create device instance
+                    device = self._devices.get(device_id)
+                    if not device:
+                        device = await self._load_device(device_info)
+                        if not device:
+                            continue
+
+                    # Check connection status
+                    if not device.connection_status:
+                        _LOGGER.warning(
+                            f"Device {device_id} disconnected, attempting to reconnect"
+                        )
+                        await device.connect()
+
+                    # Get fresh status
+                    status = await device.get()
+                    self._status_cache[device_id] = DeviceStatus(
+                        device_id=device_id,
+                        state=status.get("state", "unknown"),
+                        fan_speed=status.get("fan_speed", 0),
+                        heater_status=status.get("heater", "off"),
+                        last_updated=datetime.now(),
+                    )
+
+                except Exception as e:
+                    _LOGGER.error(f"Failed to poll device {device_id}: {str(e)}")
+                    self._status_cache[device_id] = DeviceStatus(
+                        device_id=device_id,
+                        state="error",
+                        fan_speed=0,
+                        heater_status="error",
+                        last_updated=datetime.now(),
+                        error=str(e),
+                    )
+
+                    # Try to reconnect on next iteration
+                    if device_id in self._devices:
+                        del self._devices[device_id]
+
+        except Exception as e:
+            _LOGGER.error(f"Polling error: {str(e)}")
+
+    async def _poll_devices(self, interval: int) -> None:
         """Poll all devices with reconnection logic.
 
         Args:
             interval: Time between polls in seconds
-            run_once: If True, poll once and return. If False, poll continuously.
         """
         while True:
-            try:
-                active_devices = await self.device_manager.get_connected_devices()
-
-                for device_id, device_info in active_devices.items():
-                    try:
-                        # Get or create device instance
-                        device = self._devices.get(device_id)
-                        if not device:
-                            device = await self._load_device(device_info)
-                            if not device:
-                                continue
-
-                        # Check connection status
-                        if not device.connection_status:
-                            _LOGGER.warning(
-                                f"Device {device_id} disconnected, attempting to reconnect"
-                            )
-                            await device.connect()
-
-                        # Get fresh status
-                        status = await device.get()
-                        self._status_cache[device_id] = DeviceStatus(
-                            device_id=device_id,
-                            state=status.get("state", "unknown"),
-                            fan_speed=status.get("fan_speed", 0),
-                            heater_status=status.get("heater", "off"),
-                            last_updated=datetime.now(),
-                        )
-
-                    except Exception as e:
-                        _LOGGER.error(f"Failed to poll device {device_id}: {str(e)}")
-                        self._status_cache[device_id] = DeviceStatus(
-                            device_id=device_id,
-                            state="error",
-                            fan_speed=0,
-                            heater_status="error",
-                            last_updated=datetime.now(),
-                            error=str(e),
-                        )
-
-                        # Try to reconnect on next iteration
-                        if device_id in self._devices:
-                            del self._devices[device_id]
-
-            except Exception as e:
-                _LOGGER.error(f"Polling error: {str(e)}")
-
-            if run_once:
-                break
+            await self._update_devices_status()
             await asyncio.sleep(interval)
 
     async def get_device_status(self, device_id: str) -> DeviceStatus:

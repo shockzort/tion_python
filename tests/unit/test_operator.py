@@ -1,12 +1,11 @@
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from tion_btle.operator import Operator, DeviceStatus
 from tion_btle.device_manager import DeviceInfo
 from tion_btle.scenarist import Scenario
-from tion_btle import TionS3, TionLite, TionS4
 
 
 @pytest.fixture
@@ -97,12 +96,14 @@ async def test_operator_initialization(operator, mock_device_manager):
     # Setup mock device
     mock_device = AsyncMock()
     mock_device.connect = AsyncMock()
-    
+
     # Patch TionS3 to return our mock device
-    with patch('tion_btle.operator.TionS3', return_value=mock_device):
+    with patch("tion_btle.operator.TionS3", return_value=mock_device):
+        mock_device.connect.return_value = None
+
         operator._retries = 1  # Reduce retries for test speed
-        await operator.initialize(is_testing=True)
-        
+        await operator.initialize()
+
         mock_device_manager.get_devices.assert_called_once()
         mock_device.connect.assert_called_once()
         assert len(operator._devices) == 1
@@ -122,8 +123,8 @@ async def test_device_loading(operator, mock_device_manager):
 
 
 @pytest.mark.asyncio
-async def test_device_polling(operator, mock_device_manager):
-    """Test device polling updates status cache."""
+async def test_update_devices_status(operator, mock_device_manager):
+    """Test device updates status cache."""
     mock_device = operator._devices["device1"]
     mock_device.get.return_value = {"state": "on", "fan_speed": 3, "heater": "on"}
     mock_device.connection_status = True
@@ -142,7 +143,7 @@ async def test_device_polling(operator, mock_device_manager):
     }
 
     # Test single poll iteration
-    await operator._poll_devices(0.1, run_once=True)
+    await operator._update_devices_status()
 
     assert "device1" in operator._status_cache
     status = operator._status_cache["device1"]
@@ -158,7 +159,7 @@ async def test_device_reconnection(operator):
     mock_device.get.side_effect = [Exception("Disconnected"), {"state": "on"}]
     mock_device.connection_status = False
 
-    await operator._poll_devices(0.1)
+    await operator._update_devices_status()
 
     assert mock_device.connect.called
     assert "device1" in operator._status_cache
