@@ -14,10 +14,18 @@ _LOGGER = logging.getLogger(__name__)
 
 @dataclass
 class DeviceStatus:
+    """Complete state of a Tion device."""
     device_id: str
-    state: str
-    fan_speed: int
-    heater_status: str
+    state: str  # 'on' or 'off'
+    fan_speed: int  # 0-6
+    heater_status: str  # 'on' or 'off'
+    heater_temp: int  # 10-30°C
+    mode: str  # 'outside', 'recirculation', 'mixed'
+    in_temp: int  # incoming air temp
+    out_temp: int  # outgoing air temp 
+    filter_remain: float  # days remaining
+    sound: str  # 'on' or 'off'
+    light: str  # 'on' or 'off' (for Lite models)
     last_updated: datetime
     error: Optional[str] = None
 
@@ -154,21 +162,145 @@ class Operator:
             await self._update_devices_status()
             await asyncio.sleep(interval)
 
-    async def get_device_status(self, device_id: str) -> DeviceStatus:
-        """Get cached or fresh status for a device."""
-        if device_id not in self._status_cache:
+    async def get_device_status(self, device_id: str, force_refresh: bool = False) -> DeviceStatus:
+        """Get complete device status, optionally forcing a fresh read.
+        
+        Args:
+            device_id: Device identifier
+            force_refresh: If True, bypass cache and read fresh state
+            
+        Returns:
+            DeviceStatus with all state information
+            
+        Raises:
+            ValueError: If device not found
+            TionException: If communication error occurs
+        """
+        if force_refresh or device_id not in self._status_cache:
             device = self._devices.get(device_id)
             if not device:
                 raise ValueError(f"Device {device_id} not loaded")
+                
             status = await device.get()
             self._status_cache[device_id] = DeviceStatus(
                 device_id=device_id,
                 state=status["state"],
                 fan_speed=status["fan_speed"],
                 heater_status=status["heater"],
+                heater_temp=status["heater_temp"],
+                mode=status.get("mode", "outside"),
+                in_temp=status["in_temp"],
+                out_temp=status["out_temp"],
+                filter_remain=status["filter_remain"],
+                sound=status.get("sound", "off"),
+                light=status.get("light", "off"),
                 last_updated=datetime.now(),
             )
         return self._status_cache[device_id]
+
+    async def set_device_state(self, device_id: str, state: str) -> bool:
+        """Turn device on/off.
+        
+        Args:
+            device_id: Device identifier
+            state: 'on' or 'off'
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        return await self._set_device_property(device_id, "state", state)
+
+    async def set_fan_speed(self, device_id: str, speed: int) -> bool:
+        """Set fan speed (0-6).
+        
+        Args:
+            device_id: Device identifier 
+            speed: 0 (off) to 6 (max)
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        if speed < 0 or speed > 6:
+            raise ValueError("Fan speed must be between 0 and 6")
+        return await self._set_device_property(device_id, "fan_speed", speed)
+
+    async def set_heater_state(self, device_id: str, state: str) -> bool:
+        """Enable/disable heater.
+        
+        Args:
+            device_id: Device identifier
+            state: 'on' or 'off'
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        return await self._set_device_property(device_id, "heater", state)
+
+    async def set_heater_temp(self, device_id: str, temp: int) -> bool:
+        """Set heater target temperature (10-30°C).
+        
+        Args:
+            device_id: Device identifier
+            temp: Target temperature in °C
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        if temp < 10 or temp > 30:
+            raise ValueError("Temperature must be between 10 and 30°C")
+        return await self._set_device_property(device_id, "heater_temp", temp)
+
+    async def set_mode(self, device_id: str, mode: str) -> bool:
+        """Set ventilation mode.
+        
+        Args:
+            device_id: Device identifier
+            mode: 'outside', 'recirculation' or 'mixed'
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        return await self._set_device_property(device_id, "mode", mode)
+
+    async def set_sound(self, device_id: str, state: str) -> bool:
+        """Enable/disable sound notifications.
+        
+        Args:
+            device_id: Device identifier
+            state: 'on' or 'off'
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        return await self._set_device_property(device_id, "sound", state)
+
+    async def set_light(self, device_id: str, state: str) -> bool:
+        """Enable/disable LED light (Lite models only).
+        
+        Args:
+            device_id: Device identifier
+            state: 'on' or 'off'
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        return await self._set_device_property(device_id, "light", state)
+
+    async def _set_device_property(self, device_id: str, prop: str, value) -> bool:
+        """Internal helper to set device properties."""
+        device = self._devices.get(device_id)
+        if not device:
+            raise ValueError(f"Device {device_id} not loaded")
+            
+        try:
+            await device.set({prop: value})
+            # Invalidate cache
+            if device_id in self._status_cache:
+                del self._status_cache[device_id]
+            return True
+        except Exception as e:
+            _LOGGER.error(f"Failed to set {prop}={value} on {device_id}: {str(e)}")
+            return False
 
     async def execute_scenario(self, scenario_id: int) -> bool:
         """Execute a scenario by ID with full tracking."""

@@ -273,3 +273,88 @@ async def test_operator_shutdown(operator):
     assert mock_device.disconnect.called
     assert operator._polling_task.cancelled()
     assert operator._scenario_task.cancelled()
+
+@pytest.mark.asyncio
+async def test_get_device_status_full(operator):
+    """Test complete device status reading."""
+    mock_device = operator._devices["device1"]
+    mock_device.get.return_value = {
+        "state": "on",
+        "fan_speed": 3,
+        "heater": "on",
+        "heater_temp": 20,
+        "mode": "outside",
+        "in_temp": 18,
+        "out_temp": 22,
+        "filter_remain": 90.5,
+        "sound": "off",
+        "light": "on"
+    }
+
+    status = await operator.get_device_status("device1", force_refresh=True)
+    
+    assert status.state == "on"
+    assert status.fan_speed == 3
+    assert status.heater_status == "on"
+    assert status.heater_temp == 20
+    assert status.mode == "outside"
+    assert status.in_temp == 18
+    assert status.out_temp == 22
+    assert status.filter_remain == 90.5
+    assert status.sound == "off"
+    assert status.light == "on"
+
+@pytest.mark.asyncio
+async def test_set_device_properties(operator):
+    """Test setting various device properties."""
+    mock_device = operator._devices["device1"]
+    mock_device.set = AsyncMock(return_value=True)
+
+    # Test state control
+    assert await operator.set_device_state("device1", "on")
+    mock_device.set.assert_called_with({"state": "on"})
+
+    # Test fan speed
+    assert await operator.set_fan_speed("device1", 3)
+    mock_device.set.assert_called_with({"fan_speed": 3})
+
+    # Test heater control
+    assert await operator.set_heater_state("device1", "on")
+    mock_device.set.assert_called_with({"heater": "on"})
+
+    # Test temperature
+    assert await operator.set_heater_temp("device1", 20)
+    mock_device.set.assert_called_with({"heater_temp": 20})
+
+    # Test mode
+    assert await operator.set_mode("device1", "outside")
+    mock_device.set.assert_called_with({"mode": "outside"})
+
+    # Test sound
+    assert await operator.set_sound("device1", "off")
+    mock_device.set.assert_called_with({"sound": "off"})
+
+    # Test light
+    assert await operator.set_light("device1", "on")
+    mock_device.set.assert_called_with({"light": "on"})
+
+    # Verify cache invalidation
+    assert "device1" not in operator._status_cache
+
+@pytest.mark.asyncio
+async def test_set_property_validation(operator):
+    """Test input validation for property setters."""
+    with pytest.raises(ValueError):
+        await operator.set_fan_speed("device1", -1)
+
+    with pytest.raises(ValueError):
+        await operator.set_fan_speed("device1", 7)
+
+    with pytest.raises(ValueError):
+        await operator.set_heater_temp("device1", 9)
+
+    with pytest.raises(ValueError):
+        await operator.set_heater_temp("device1", 31)
+
+    with pytest.raises(ValueError):
+        await operator.set_device_state("device1", "invalid")
