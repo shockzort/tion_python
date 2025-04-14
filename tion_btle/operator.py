@@ -22,7 +22,7 @@ class DeviceStatus:
     heater_temp: int  # 10-30°C
     mode: str  # 'outside', 'recirculation', 'mixed'
     in_temp: int  # incoming air temp
-    out_temp: int  # outgoing air temp 
+    out_temp: int  # outgoing air temp
     filter_remain: float  # days remaining
     sound: str  # 'on' or 'off'
     light: str  # 'on' or 'off' (for Lite models)
@@ -178,14 +178,14 @@ class Operator:
 
     async def get_device_status(self, device_id: str, force_refresh: bool = False) -> DeviceStatus:
         """Get complete device status, optionally forcing a fresh read.
-        
+
         Args:
             device_id: Device identifier
             force_refresh: If True, bypass cache and read fresh state
-            
+
         Returns:
             DeviceStatus with all state information
-            
+
         Raises:
             ValueError: If device not found
             TionException: If communication error occurs
@@ -194,7 +194,7 @@ class Operator:
             device = self._devices.get(device_id)
             if not device:
                 raise ValueError(f"Device {device_id} not loaded")
-                
+
             status = await device.get()
             self._status_cache[device_id] = DeviceStatus(
                 device_id=device_id,
@@ -214,14 +214,14 @@ class Operator:
 
     async def set_device_state(self, device_id: str, state: str) -> bool:
         """Turn device on/off.
-        
+
         Args:
             device_id: Device identifier
             state: 'on' or 'off'
-            
+
         Returns:
             True if successful, False otherwise
-            
+
         Raises:
             ValueError: If state is not 'on' or 'off'
         """
@@ -231,11 +231,11 @@ class Operator:
 
     async def set_fan_speed(self, device_id: str, speed: int) -> bool:
         """Set fan speed (0-6).
-        
+
         Args:
-            device_id: Device identifier 
+            device_id: Device identifier
             speed: 0 (off) to 6 (max)
-            
+
         Returns:
             True if successful, False otherwise
         """
@@ -245,11 +245,11 @@ class Operator:
 
     async def set_heater_state(self, device_id: str, state: str) -> bool:
         """Enable/disable heater.
-        
+
         Args:
             device_id: Device identifier
             state: 'on' or 'off'
-            
+
         Returns:
             True if successful, False otherwise
         """
@@ -257,11 +257,11 @@ class Operator:
 
     async def set_heater_temp(self, device_id: str, temp: int) -> bool:
         """Set heater target temperature (10-30°C).
-        
+
         Args:
             device_id: Device identifier
             temp: Target temperature in °C
-            
+
         Returns:
             True if successful, False otherwise
         """
@@ -271,11 +271,11 @@ class Operator:
 
     async def set_mode(self, device_id: str, mode: str) -> bool:
         """Set ventilation mode.
-        
+
         Args:
             device_id: Device identifier
             mode: 'outside', 'recirculation' or 'mixed'
-            
+
         Returns:
             True if successful, False otherwise
         """
@@ -283,11 +283,11 @@ class Operator:
 
     async def set_sound(self, device_id: str, state: str) -> bool:
         """Enable/disable sound notifications.
-        
+
         Args:
             device_id: Device identifier
             state: 'on' or 'off'
-            
+
         Returns:
             True if successful, False otherwise
         """
@@ -295,11 +295,11 @@ class Operator:
 
     async def set_light(self, device_id: str, state: str) -> bool:
         """Enable/disable LED light (Lite models only).
-        
+
         Args:
             device_id: Device identifier
             state: 'on' or 'off'
-            
+
         Returns:
             True if successful, False otherwise
         """
@@ -310,7 +310,7 @@ class Operator:
         device = self._devices.get(device_id)
         if not device:
             raise ValueError(f"Device {device_id} not loaded")
-            
+
         try:
             await device.set({prop: value})
             # Invalidate cache
