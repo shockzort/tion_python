@@ -252,7 +252,12 @@ class Operator:
 
         Returns:
             True if successful, False otherwise
+
+        Raises:
+            ValueError: If state is not 'on' or 'off'
         """
+        if state not in ("on", "off"):
+            raise ValueError("Heater state must be either 'on' or 'off'")
         return await self._set_device_property(device_id, "heater", state)
 
     async def set_heater_temp(self, device_id: str, temp: int) -> bool:
@@ -278,7 +283,13 @@ class Operator:
 
         Returns:
             True if successful, False otherwise
+
+        Raises:
+            ValueError: If mode is not one of the allowed values
         """
+        valid_modes = ["outside", "recirculation", "mixed"]
+        if mode not in valid_modes:
+            raise ValueError(f"Mode must be one of: {', '.join(valid_modes)}")
         return await self._set_device_property(device_id, "mode", mode)
 
     async def set_sound(self, device_id: str, state: str) -> bool:
@@ -290,7 +301,12 @@ class Operator:
 
         Returns:
             True if successful, False otherwise
+
+        Raises:
+            ValueError: If state is not 'on' or 'off'
         """
+        if state not in ("on", "off"):
+            raise ValueError("Sound state must be either 'on' or 'off'")
         return await self._set_device_property(device_id, "sound", state)
 
     async def set_light(self, device_id: str, state: str) -> bool:
@@ -302,7 +318,12 @@ class Operator:
 
         Returns:
             True if successful, False otherwise
+
+        Raises:
+            ValueError: If state is not 'on' or 'off'
         """
+        if state not in ("on", "off"):
+            raise ValueError("Light state must be either 'on' or 'off'")
         return await self._set_device_property(device_id, "light", state)
 
     async def _set_device_property(self, device_id: str, prop: str, value) -> bool:

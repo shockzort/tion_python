@@ -376,17 +376,30 @@ async def test_set_device_properties(operator):
 @pytest.mark.asyncio
 async def test_set_property_validation(operator):
     """Test input validation for property setters."""
+    # Fan speed validation
     with pytest.raises(ValueError):
         await operator.set_fan_speed("device1", -1)
-
     with pytest.raises(ValueError):
         await operator.set_fan_speed("device1", 7)
 
+    # Temperature validation
     with pytest.raises(ValueError):
         await operator.set_heater_temp("device1", 9)
-
     with pytest.raises(ValueError):
         await operator.set_heater_temp("device1", 31)
 
+    # State validation
     with pytest.raises(ValueError):
         await operator.set_device_state("device1", "invalid")
+    with pytest.raises(ValueError):
+        await operator.set_heater_state("device1", "invalid")
+    with pytest.raises(ValueError):
+        await operator.set_sound("device1", "invalid")
+    with pytest.raises(ValueError):
+        await operator.set_light("device1", "invalid")
+
+    # Mode validation
+    with pytest.raises(ValueError):
+        await operator.set_mode("device1", "invalid_mode")
+    with pytest.raises(ValueError):
+        await operator.set_mode("device1", "")
