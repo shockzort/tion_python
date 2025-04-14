@@ -131,6 +131,13 @@ class Operator:
                         state=status.get("state", "unknown"),
                         fan_speed=status.get("fan_speed", 0),
                         heater_status=status.get("heater", "off"),
+                        heater_temp=status.get("heater_temp", 0),
+                        mode=status.get("mode", "outside"),
+                        in_temp=status.get("in_temp", 0),
+                        out_temp=status.get("out_temp", 0),
+                        filter_remain=status.get("filter_remain", 0),
+                        sound=status.get("sound", "off"),
+                        light=status.get("light", "off"),
                         last_updated=datetime.now(),
                     )
 
@@ -207,7 +214,12 @@ class Operator:
             
         Returns:
             True if successful, False otherwise
+            
+        Raises:
+            ValueError: If state is not 'on' or 'off'
         """
+        if state not in ("on", "off"):
+            raise ValueError("State must be either 'on' or 'off'")
         return await self._set_device_property(device_id, "state", state)
 
     async def set_fan_speed(self, device_id: str, speed: int) -> bool:

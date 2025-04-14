@@ -126,7 +126,18 @@ async def test_device_loading(operator, mock_device_manager):
 async def test_update_devices_status(operator, mock_device_manager):
     """Test device updates status cache."""
     mock_device = operator._devices["device1"]
-    mock_device.get.return_value = {"state": "on", "fan_speed": 3, "heater": "on"}
+    mock_device.get.return_value = {
+        "state": "on",
+        "fan_speed": 3,
+        "heater": "on",
+        "heater_temp": 20,
+        "mode": "outside",
+        "in_temp": 18,
+        "out_temp": 22,
+        "filter_remain": 90.5,
+        "sound": "off",
+        "light": "off"
+    }
     mock_device.connection_status = True
 
     # Mock get_connected_devices to return our test device
@@ -156,7 +167,21 @@ async def test_update_devices_status(operator, mock_device_manager):
 async def test_device_reconnection(operator):
     """Test automatic device reconnection."""
     mock_device = operator._devices["device1"]
-    mock_device.get.side_effect = [Exception("Disconnected"), {"state": "on"}]
+    mock_device.get.side_effect = [
+        Exception("Disconnected"),
+        {
+            "state": "on",
+            "fan_speed": 3,
+            "heater": "on",
+            "heater_temp": 20,
+            "mode": "outside",
+            "in_temp": 18,
+            "out_temp": 22,
+            "filter_remain": 90.5,
+            "sound": "off",
+            "light": "off"
+        }
+    ]
     mock_device.connection_status = False
 
     await operator._update_devices_status()
@@ -253,8 +278,15 @@ async def test_sensor_based_trigger(operator):
     operator._status_cache["device1"] = DeviceStatus(
         device_id="device1",
         state="on",
-        fan_speed=4,  # Above threshold
+        fan_speed=4,
         heater_status="on",
+        heater_temp=20,
+        mode="outside",
+        in_temp=18,
+        out_temp=22,
+        filter_remain=90.5,
+        sound="off",
+        light="off",
         last_updated=datetime.now(),
     )
 
