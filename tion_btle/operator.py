@@ -148,6 +148,13 @@ class Operator:
                         state="error",
                         fan_speed=0,
                         heater_status="error",
+                        heater_temp=0,
+                        mode="unknown",
+                        in_temp=0,
+                        out_temp=0,
+                        filter_remain=0,
+                        sound="off",
+                        light="off",
                         last_updated=datetime.now(),
                         error=str(e),
                     )
