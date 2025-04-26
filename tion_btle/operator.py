@@ -1,9 +1,8 @@
 import asyncio
 import logging
-from typing import List, Dict, Optional, AsyncGenerator
+from typing import Dict, Optional
 from dataclasses import dataclass
-from datetime import datetime, timedelta
-import json
+from datetime import datetime
 
 from tion_btle import Tion, TionS3, TionLite, TionS4
 from tion_btle.device_manager import DeviceManager, DeviceInfo
@@ -15,6 +14,7 @@ _LOGGER = logging.getLogger(__name__)
 @dataclass
 class DeviceStatus:
     """Complete state of a Tion device."""
+
     device_id: str
     state: str  # 'on' or 'off'
     fan_speed: int  # 0-6
@@ -176,7 +176,9 @@ class Operator:
             await self._update_devices_status()
             await asyncio.sleep(interval)
 
-    async def get_device_status(self, device_id: str, force_refresh: bool = False) -> DeviceStatus:
+    async def get_device_status(
+        self, device_id: str, force_refresh: bool = False
+    ) -> DeviceStatus:
         """Get complete device status, optionally forcing a fresh read.
 
         Args:
