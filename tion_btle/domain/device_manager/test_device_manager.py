@@ -4,9 +4,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from typing import List
 from dataclasses import asdict
 
-from tion_btle.domain.device_manager.device_manager import DeviceManager
+from tion_btle.domain.device_manager.device_manager import DeviceManager, discover_and_register_all
 from tion_btle.domain.device_manager.models import DeviceInfo, DeviceGroup
 from tion_btle.domain.device_manager.interfaces import IDeviceStorage, IDeviceGroupStorage
+from tion_btle import Tion, TionS3, TionLite, TionS4
 from bleak.backends.device import BLEDevice
 
 
