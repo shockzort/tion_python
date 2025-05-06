@@ -4,8 +4,8 @@ from typing import List, Dict, Optional
 from bleak import BleakScanner
 from bleak.backends.device import BLEDevice
 
-from tion_btle.domain.device_manager.interfaces import IDeviceStorage, IDeviceGroupStorage
-from tion_btle.domain.device_manager.models import DeviceInfo
+from .interfaces import IDeviceStorage, IDeviceGroupStorage
+from .models import DeviceInfo
 from tion_btle.tion import Tion
 from tion_btle.s3 import TionS3
 from tion_btle.lite import TionLite
