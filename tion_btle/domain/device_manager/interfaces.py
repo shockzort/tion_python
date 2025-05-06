@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import List, Dict, Optional
-from .models import DeviceInfo, DeviceGroup
+from tion_btle.domain.device_manager.models import DeviceInfo, DeviceGroup
 
 class IDeviceStorage(ABC):
     """Interface for device persistence operations"""

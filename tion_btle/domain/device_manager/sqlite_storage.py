@@ -1,8 +1,8 @@
 import sqlite3
 import json
 from typing import List, Dict, Optional, Any
-from .models import DeviceInfo, DeviceGroup
-from .interfaces import IDeviceStorage, IDeviceGroupStorage
+from tion_btle.domain.device_manager.models import DeviceInfo, DeviceGroup
+from tion_btle.domain.device_manager.interfaces import IDeviceStorage, IDeviceGroupStorage
 
 class SQLiteDeviceStorage(IDeviceStorage, IDeviceGroupStorage):
     """SQLite implementation of device storage interfaces"""

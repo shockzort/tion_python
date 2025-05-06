@@ -4,8 +4,8 @@ from typing import List, Dict, Optional
 from bleak import BleakScanner
 from bleak.backends.device import BLEDevice
 
-from .interfaces import IDeviceStorage, IDeviceGroupStorage
-from .models import DeviceInfo
+from tion_btle.domain.device_manager.interfaces import IDeviceStorage, IDeviceGroupStorage
+from tion_btle.domain.device_manager.models import DeviceInfo
 from tion_btle import Tion, TionS3, TionLite, TionS4
 
 _LOGGER = logging.getLogger(__name__)
