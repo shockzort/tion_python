@@ -166,12 +166,17 @@ async def test_pair_device_success(device_manager, mock_device_storage):
         mac_address="AA:BB:CC:DD:EE:FF", model="S3"
     )
 
-    with patch("tion_btle.TionS3.pair", new_callable=AsyncMock) as mock_pair:
+    mock_device = MagicMock()
+    mock_device.pair = AsyncMock(return_value=None)
+    
+    with patch("tion_btle.s3.TionS3", return_value=mock_device) as mock_tion:
         result = await device_manager.pair_device("1")
         assert result is True
         mock_device_storage.update_device.assert_called_once_with(
             "1", is_paired=True
         )
+        mock_device.pair.assert_awaited_once()
+        mock_tion.assert_called_once_with("AA:BB:CC:DD:EE:FF")
 
 
 @pytest.mark.asyncio
@@ -182,10 +187,13 @@ async def test_pair_device_failure(device_manager, mock_device_storage):
         mac_address="AA:BB:CC:DD:EE:FF", model="S3"
     )
 
-    with patch("tion_btle.TionS3.pair", new_callable=AsyncMock) as mock_pair:
-        mock_pair.side_effect = Exception("Pairing failed")
+    mock_device = MagicMock()
+    mock_device.pair = AsyncMock(side_effect=Exception("Pairing failed"))
+    
+    with patch("tion_btle.s3.TionS3", return_value=mock_device):
         result = await device_manager.pair_device("1")
         assert result is False
+        mock_device.pair.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -197,12 +205,18 @@ async def test_unpair_device(device_manager, mock_device_storage):
         is_paired=True
     )
 
-    with patch("tion_btle.TionS3._btle.unpair", new_callable=AsyncMock) as mock_unpair:
+    mock_device = MagicMock()
+    mock_device._btle = MagicMock()
+    mock_device._btle.unpair = AsyncMock(return_value=None)
+    
+    with patch("tion_btle.s3.TionS3", return_value=mock_device) as mock_tion:
         result = await device_manager.unpair_device("1")
         assert result is True
         mock_device_storage.update_device.assert_called_once_with(
             "1", is_paired=False
         )
+        mock_device._btle.unpair.assert_awaited_once()
+        mock_tion.assert_called_once_with("AA:BB:CC:DD:EE:FF")
 
 
 def test_device_groups_operations(device_manager, mock_group_storage):
