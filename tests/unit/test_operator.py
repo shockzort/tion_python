@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from tion_btle.operator import Operator, DeviceStatus
-from tion_btle.device_manager import DeviceInfo
+from tion_btle.domain.device_manager.models import DeviceInfo
 from tion_btle.scenarist import Scenario
 
 
@@ -82,12 +82,17 @@ def mock_scenarist():
 @pytest.fixture
 def operator(mock_device_manager, mock_scenarist):
     with patch(
-        "tion_btle.operator.DeviceManager", return_value=mock_device_manager
-    ), patch("tion_btle.operator.Scenarist", return_value=mock_scenarist):
-        op = Operator(db_path=":memory:")
-        op._devices = {"device1": AsyncMock()}
-        op._status_cache = {}
-        yield op
+        "tion_btle.domain.device_manager.device_manager.DeviceManager", return_value=mock_device_manager
+    ), patch("tion_btle.operator.Scenarist", return_value=mock_scenarist), \
+    patch("tion_btle.domain.device_manager.sqlite_storage.SQLiteDeviceStorage"):
+        # Also patch the import inside the Operator.__init__ method
+        with patch("tion_btle.operator.SQLiteDeviceStorage", create=True):
+            op = Operator(db_path=":memory:")
+            # Set the device manager directly to avoid SQLite issues
+            op.device_manager = mock_device_manager
+            op._devices = {"device1": AsyncMock()}
+            op._status_cache = {}
+            yield op
 
 
 @pytest.mark.asyncio
@@ -324,7 +329,7 @@ async def test_get_device_status_full(operator):
     }
 
     status = await operator.get_device_status("device1", force_refresh=True)
-    
+
     assert status.state == "on"
     assert status.fan_speed == 3
     assert status.heater_status == "on"

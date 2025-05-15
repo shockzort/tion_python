@@ -5,7 +5,8 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from tion_btle import Tion, TionS3, TionLite, TionS4
-from tion_btle.device_manager import DeviceManager, DeviceInfo
+from tion_btle.domain.device_manager.device_manager import DeviceManager
+from tion_btle.domain.device_manager.models import DeviceInfo
 from tion_btle.scenarist import Scenario, Scenarist
 
 _LOGGER = logging.getLogger(__name__)
@@ -34,7 +35,10 @@ class Operator:
     """Central operator for managing Tion devices and scenarios."""
 
     def __init__(self, db_path: str = "devices.db"):
-        self.device_manager = DeviceManager(db_path)
+        from tion_btle.domain.device_manager.sqlite_storage import SQLiteDeviceStorage
+        device_storage = SQLiteDeviceStorage(db_path)
+        group_storage = SQLiteDeviceStorage(db_path)
+        self.device_manager = DeviceManager(device_storage, group_storage)
         self.scenarist = Scenarist(db_path)
         self._devices: Dict[str, Tion] = {}
         self._status_cache: Dict[str, DeviceStatus] = {}

@@ -13,15 +13,14 @@ from tion_btle.s4 import TionS4
 
 _LOGGER = logging.getLogger(__name__)
 
+
 class DeviceManager:
     """Core domain service for managing Tion devices"""
-    
+
     TION_DEVICE_PREFIXES = ("Tion_Breezer_", "tion_")
 
     def __init__(
-        self,
-        device_storage: IDeviceStorage,
-        group_storage: IDeviceGroupStorage
+        self, device_storage: IDeviceStorage, group_storage: IDeviceGroupStorage
     ):
         self.device_storage = device_storage
         self.group_storage = group_storage
@@ -30,7 +29,8 @@ class DeviceManager:
         """Discover Tion BLE devices in range"""
         devices = await BleakScanner.discover()
         return [
-            d for d in devices
+            d
+            for d in devices
             if d.name and d.name.startswith(self.TION_DEVICE_PREFIXES)
         ]
 
@@ -45,10 +45,7 @@ class DeviceManager:
         return Tion
 
     async def register_device(
-        self, 
-        device: BLEDevice, 
-        name: str = None, 
-        auto_pair: bool = False
+        self, device: BLEDevice, name: str = None, auto_pair: bool = False
     ) -> DeviceInfo:
         """Register new device"""
         device_class = self.get_device_class(device.name)
@@ -133,13 +130,12 @@ class DeviceManager:
         device = device_class(device_info.mac_address)
 
         try:
-            _LOGGER.info(f"Starting pairing process for {device_id}, timeout: {timeout}s")
+            _LOGGER.info(
+                f"Starting pairing process for {device_id}, timeout: {timeout}s"
+            )
             await asyncio.wait_for(device.pair(), timeout=timeout)
 
-            self.device_storage.update_device(
-                device_id,
-                is_paired=True
-            )
+            self.device_storage.update_device(device_id, is_paired=True)
             _LOGGER.info(f"Successfully paired device {device_id}")
             return True
 
@@ -161,15 +157,13 @@ class DeviceManager:
 
         try:
             await device._btle.unpair()
-            self.device_storage.update_device(
-                device_id,
-                is_paired=False
-            )
+            self.device_storage.update_device(device_id, is_paired=False)
             _LOGGER.info(f"Successfully unpaired device {device_id}")
             return True
         except Exception as e:
             _LOGGER.error(f"Failed to unpair device {device_id}: {str(e)}")
             return False
+
 
 async def discover_and_register_all(manager: DeviceManager) -> List[DeviceInfo]:
     """Discover and register all Tion devices in range"""
