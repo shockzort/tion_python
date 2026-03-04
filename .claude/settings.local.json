@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(uv --version)",
+      "Bash(uv sync --dev)",
+      "Bash(uv run pytest --tb=short -q)",
+      "Bash(uv run pytest tests/ tion_btle/domain/device_manager/tests/ -v --tb=short)",
+      "Bash(uv run pytest tests/unit/ tion_btle/domain/device_manager/tests/ -v --tb=short)",
+      "Bash(uv run pytest tests/unit/test_api_devices.py -v --tb=short)"
+    ]
+  }
+}

@@ -73,9 +73,13 @@ def test_get_device_class(device_manager):
 
 
 @pytest.mark.asyncio
-async def test_register_device(device_manager, mock_ble_device, mock_device_storage):
+async def test_register_device(device_manager, mock_device_storage):
     """Test device registration"""
-    device_info = await device_manager.register_device(mock_ble_device)
+    device_info = await device_manager.register_device(
+        name="S3 1234",
+        mac_address="AA:BB:CC:DD:EE:FF",
+        model="S3",
+    )
 
     assert device_info.name == "S3 1234"
     assert device_info.type == "TionS3"
@@ -83,13 +87,18 @@ async def test_register_device(device_manager, mock_ble_device, mock_device_stor
 
 
 @pytest.mark.asyncio
-async def test_register_device_with_auto_pair(device_manager, mock_ble_device):
+async def test_register_device_with_auto_pair(device_manager):
     """Test device registration with auto-pairing"""
     with patch(
         "tion_btle.domain.device_manager.device_manager.DeviceManager.pair_device",
         new_callable=AsyncMock,
     ) as mock_pair:
-        await device_manager.register_device(mock_ble_device, auto_pair=True)
+        await device_manager.register_device(
+            name="Test Device",
+            mac_address="AA:BB:CC:DD:EE:FF",
+            model="S3",
+            auto_pair=True,
+        )
         mock_pair.assert_called_once()
 
 

@@ -45,16 +45,38 @@ class DeviceManager:
         return Tion
 
     async def register_device(
-        self, device: BLEDevice, name: str = None, auto_pair: bool = False
+        self,
+        name: str,
+        mac_address: str,
+        model: str,
+        room: str | None = None,
+        auto_pair: bool = False,
     ) -> DeviceInfo:
-        """Register new device"""
-        device_class = self.get_device_class(device.name)
+        """Register a new Tion device by MAC address.
+
+        Args:
+            name: Human-friendly device name.
+            mac_address: BLE MAC address (e.g. 'AA:BB:CC:DD:EE:FF').
+            model: Device model string ('S3', 'S4', 'Lite').
+            room: Optional room name.
+            auto_pair: If True, initiate BLE pairing immediately.
+
+        Returns:
+            Created DeviceInfo instance.
+        """
+        _model_to_type: dict[str, type[Tion]] = {
+            "S3": TionS3,
+            "S4": TionS4,
+            "Lite": TionLite,
+        }
+        device_class = _model_to_type.get(model, Tion)
         device_info = DeviceInfo(
-            id=device.address,
-            name=name or self._generate_device_name(device.name),
+            id=mac_address,
+            name=name,
             type=device_class.__name__,
-            mac_address=device.address,
-            model=device_class.__name__.replace("Tion", ""),
+            mac_address=mac_address,
+            model=model,
+            room=room,
         )
 
         self.device_storage.create_device(device_info)
@@ -172,10 +194,16 @@ async def discover_and_register_all(manager: DeviceManager) -> List[DeviceInfo]:
 
     for device in devices:
         try:
-            device_info = await manager.register_device(device)
+            device_class = manager.get_device_class(device.name or "")
+            model = device_class.__name__.replace("Tion", "")
+            device_info = await manager.register_device(
+                name=manager._generate_device_name(device.name or device.address),
+                mac_address=device.address,
+                model=model,
+            )
             registered.append(device_info)
-            _LOGGER.info(f"Registered device: {device_info}")
+            _LOGGER.info("Registered device: %s", device_info)
         except Exception as e:
-            _LOGGER.error(f"Failed to register device {device}: {e}")
+            _LOGGER.error("Failed to register device %s: %s", device, e)
 
     return registered

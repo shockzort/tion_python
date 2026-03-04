@@ -1,15 +1,20 @@
+from __future__ import annotations
+
 import asyncio
 import logging
-from typing import Dict, Optional
+import os
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Dict, Optional
 
-from tion_btle import Tion, TionS3, TionLite, TionS4
+from tion_btle import Tion, TionLite, TionS3, TionS4
 from tion_btle.domain.device_manager.device_manager import DeviceManager
 from tion_btle.domain.device_manager.models import DeviceInfo
 from tion_btle.scenarist import Scenario, Scenarist
 
 _LOGGER = logging.getLogger(__name__)
+
+BLE_OPERATION_TIMEOUT = float(os.getenv("BLE_OPERATION_TIMEOUT", "10.0"))
 
 
 @dataclass
@@ -128,8 +133,10 @@ class Operator:
                         )
                         await device.connect()
 
-                    # Get fresh status
-                    status = await device.get()
+                    # Get fresh status with timeout
+                    status = await asyncio.wait_for(
+                        device.get(), timeout=BLE_OPERATION_TIMEOUT
+                    )
                     self._status_cache[device_id] = DeviceStatus(
                         device_id=device_id,
                         state=status.get("state", "unknown"),
@@ -145,8 +152,33 @@ class Operator:
                         last_updated=datetime.now(),
                     )
 
+                except asyncio.TimeoutError:
+                    _LOGGER.error(
+                        "BLE operation timed out for device %s (timeout=%.1fs)",
+                        device_id,
+                        BLE_OPERATION_TIMEOUT,
+                    )
+                    if device_id in self._devices:
+                        del self._devices[device_id]
+                    self._status_cache[device_id] = DeviceStatus(
+                        device_id=device_id,
+                        state="error",
+                        fan_speed=0,
+                        heater_status="error",
+                        heater_temp=0,
+                        mode="unknown",
+                        in_temp=0,
+                        out_temp=0,
+                        filter_remain=0,
+                        sound="off",
+                        light="off",
+                        last_updated=datetime.now(),
+                        error="BLE timeout",
+                    )
                 except Exception as e:
-                    _LOGGER.error(f"Failed to poll device {device_id}: {str(e)}")
+                    _LOGGER.error(
+                        "Failed to poll device %s: %s", device_id, str(e), exc_info=True
+                    )
                     self._status_cache[device_id] = DeviceStatus(
                         device_id=device_id,
                         state="error",
@@ -168,7 +200,7 @@ class Operator:
                         del self._devices[device_id]
 
         except Exception as e:
-            _LOGGER.error(f"Polling error: {str(e)}")
+            _LOGGER.error("Polling error: %s", e, exc_info=True)
 
     async def _poll_devices(self, interval: int) -> None:
         """Poll all devices with reconnection logic.
@@ -201,7 +233,19 @@ class Operator:
             if not device:
                 raise ValueError(f"Device {device_id} not loaded")
 
-            status = await device.get()
+            try:
+                status = await asyncio.wait_for(
+                    device.get(), timeout=BLE_OPERATION_TIMEOUT
+                )
+            except asyncio.TimeoutError as exc:
+                _LOGGER.error(
+                    "BLE get() timed out for device %s (timeout=%.1fs)",
+                    device_id,
+                    BLE_OPERATION_TIMEOUT,
+                )
+                raise ValueError(
+                    f"Device {device_id} BLE operation timed out"
+                ) from exc
             self._status_cache[device_id] = DeviceStatus(
                 device_id=device_id,
                 state=status["state"],
@@ -339,13 +383,25 @@ class Operator:
             raise ValueError(f"Device {device_id} not loaded")
 
         try:
-            await device.set({prop: value})
+            await asyncio.wait_for(
+                device.set({prop: value}), timeout=BLE_OPERATION_TIMEOUT
+            )
             # Invalidate cache
             if device_id in self._status_cache:
                 del self._status_cache[device_id]
             return True
+        except asyncio.TimeoutError:
+            _LOGGER.error(
+                "BLE set() timed out for device %s prop=%s (timeout=%.1fs)",
+                device_id,
+                prop,
+                BLE_OPERATION_TIMEOUT,
+            )
+            return False
         except Exception as e:
-            _LOGGER.error(f"Failed to set {prop}={value} on {device_id}: {str(e)}")
+            _LOGGER.error(
+                "Failed to set %s=%s on %s: %s", prop, value, device_id, str(e), exc_info=True
+            )
             return False
 
     async def execute_scenario(self, scenario_id: int) -> bool:
@@ -394,7 +450,9 @@ class Operator:
             return success
 
         except Exception as e:
-            _LOGGER.error(f"Failed to execute scenario {scenario_id}: {str(e)}")
+            _LOGGER.error(
+                "Failed to execute scenario %s: %s", scenario_id, e, exc_info=True
+            )
             scenario.last_executed = datetime.now()
             scenario.execution_count += 1
             scenario.last_status = False
@@ -416,7 +474,7 @@ class Operator:
                     if await self._should_execute_scenario(scenario):
                         await self.execute_scenario(scenario.id)
             except Exception as e:
-                _LOGGER.error(f"Scenario execution error: {str(e)}")
+                _LOGGER.error("Scenario execution error: %s", e, exc_info=True)
             await asyncio.sleep(60)
 
     async def _should_execute_scenario(self, scenario: Scenario) -> bool:
@@ -473,7 +531,11 @@ class Operator:
             try:
                 await self._devices[device_id].disconnect()
             except Exception:
-                pass
+                _LOGGER.warning(
+                    "Failed to disconnect device %s before reconnect",
+                    device_id,
+                    exc_info=True,
+                )
             del self._devices[device_id]
 
         device = await self._load_device(device_info)
@@ -499,6 +561,8 @@ class Operator:
             try:
                 await device.disconnect()
             except Exception as e:
-                _LOGGER.error(f"Error disconnecting device {device_id}: {str(e)}")
+                _LOGGER.error(
+                    "Error disconnecting device %s: %s", device_id, e, exc_info=True
+                )
             finally:
                 del self._devices[device_id]
