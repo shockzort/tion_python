@@ -9,6 +9,8 @@ dependencies = [
     "pydantic>=2.9",
     "pydantic-settings>=2.6",
     "structlog>=24.4",
+    "bleak>=3.0.2",
+    "typer>=0.26.8",
 ]
 
 [project.scripts]
@@ -59,6 +61,10 @@ select = [
 ignore = [
     "RUF001", "RUF002", "RUF003",  # «неоднозначная» кириллица: проект русскоязычный
 ]
+
+[tool.ruff.lint.per-file-ignores]
+# Тесты: busy-wait-поллинг с инжектируемым сном — осознанный паттерн
+"tests/*" = ["ASYNC109", "ASYNC110"]
 
 [tool.mypy]
 strict = true
