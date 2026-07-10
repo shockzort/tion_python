@@ -1,0 +1,20 @@
+{
+  "description": "Tion S3: одиночный 20-байтовый кадр ответа (Nordic UART, без CRC)",
+  "frame_hex": "b3 10 24 14 03 00 15 14 14 8f 00 0c 0a 00 4b 0a 00 33 00 5a",
+  "expected_state": {
+    "fan_speed": 4,
+    "mode_code": 2,
+    "heater_temp": 20,
+    "heater": true,
+    "power": true,
+    "timer": false,
+    "sound": false,
+    "out_temp": 20,
+    "in_temp": 20,
+    "filter_remain_days": 143,
+    "time": "12:10",
+    "error_code": 0,
+    "productivity_m3h": 75,
+    "fw_version": "0033"
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "description": "Tion S4: ответ на REQUEST_PARAMS (реальный захват из фикстур апстрима)",
+  "ble_packets_hex": [
+    "00 2f 00 3a 27 31 32 72 7b 64 d7 31 ea 58 3a 2f 51 00 19 04",
+    "40 0e 10 1b 26 3b 6e 07 00 fa 4e 07 00 06 ff e5 00 a6 e9 22",
+    "c0 00 00 00 00 00 06 00 98 5d"
+  ],
+  "frame_hex": "2f 00 3a 27 31 32 72 7b 64 d7 31 ea 58 3a 2f 51 00 19 04 0e 10 1b 26 3b 6e 07 00 fa 4e 07 00 06 ff e5 00 a6 e9 22 00 00 00 00 00 06 00 98 5d",
+  "header": {
+    "length": 47,
+    "rand": "0x27",
+    "opcode_hex": "31 32",
+    "request_id_hex": "72 7b 64 d7",
+    "extra_hex": "31 ea 58 3a"
+  },
+  "payload_hex": "2f 51 00 19 04 0e 10 1b 26 3b 6e 07 00 fa 4e 07 00 06 ff e5 00 a6 e9 22 00 00 00 00 00 06 00",
+  "crc_hex": "98 5d",
+  "expected_state": {
+    "power": true,
+    "sound": true,
+    "light": true,
+    "heater": true,
+    "mode": "outside",
+    "heater_temp": 25,
+    "fan_speed": 4,
+    "in_temp": 14,
+    "out_temp": 16,
+    "filter_remain_seconds": 15073030
+  }
+}

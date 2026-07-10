@@ -1,0 +1,31 @@
+{
+  "description": "Tion S4: encode-векторы запросов с фиксированными nonce и корректным CRC-16/CCITT-FALSE",
+  "nonces": {
+    "rand": "0xa1",
+    "request_id_hex": "0d d7 1f 8f",
+    "extra_hex": "48 d3 c3 1a"
+  },
+  "get_status": {
+    "frame_hex": "10 00 3a a1 32 32 0d d7 1f 8f 48 d3 c3 1a 20 c5",
+    "ble_packets_hex": [
+      "80 10 00 3a a1 32 32 0d d7 1f 8f 48 d3 c3 1a 20 c5"
+    ]
+  },
+  "set_params": {
+    "fields": {
+      "power": true,
+      "sound": true,
+      "light": true,
+      "heater": true,
+      "mode": "outside",
+      "heater_temp": 25,
+      "fan_speed": 4
+    },
+    "frame_hex": "17 00 3a a1 30 32 0d d7 1f 8f 48 d3 c3 1a 17 00 00 19 04 b5 00 40 54",
+    "ble_packets_hex": [
+      "00 17 00 3a a1 30 32 0d d7 1f 8f 48 d3 c3 1a 17 00 00 19 04",
+      "c0 b5 00 40 54"
+    ]
+  },
+  "note": "Апстрим слал вместо CRC константу bb aa — устройство это принимает; мы шлём корректный CRC"
+}

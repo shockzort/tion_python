@@ -1,0 +1,39 @@
+{
+  "description": "Tion Lite: ответ на REQUEST_PARAMS (реальный захват из фикстур апстрима)",
+  "ble_packets_hex": [
+    "00 49 00 3a 4e 31 12 0d d7 1f 8f bf c9 40 37 cf d8 02 0f 04",
+    "40 09 0f 1a 80 8e 05 00 e9 8b 05 00 17 c2 e7 00 26 1b 18 00",
+    "40 00 00 00 00 00 00 00 00 00 00 00 03 00 04 02 00 00 00 00",
+    "c0 00 00 00 00 00 0a 14 19 02 04 06 06 18 00 b5 ad"
+  ],
+  "frame_hex": "49 00 3a 4e 31 12 0d d7 1f 8f bf c9 40 37 cf d8 02 0f 04 09 0f 1a 80 8e 05 00 e9 8b 05 00 17 c2 e7 00 26 1b 18 00 00 00 00 00 00 00 00 00 00 00 00 03 00 04 02 00 00 00 00 00 00 00 00 00 0a 14 19 02 04 06 06 18 00 b5 ad",
+  "header": {
+    "length": 73,
+    "rand": "0x4e",
+    "opcode_hex": "31 12",
+    "request_id_hex": "0d d7 1f 8f",
+    "extra_hex": "bf c9 40 37"
+  },
+  "payload_hex": "cf d8 02 0f 04 09 0f 1a 80 8e 05 00 e9 8b 05 00 17 c2 e7 00 26 1b 18 00 00 00 00 00 00 00 00 00 00 00 00 03 00 04 02 00 00 00 00 00 00 00 00 00 0a 14 19 02 04 06 06 18 00",
+  "crc_hex": "b5 ad",
+  "expected_state": {
+    "power": true,
+    "sound": true,
+    "light": true,
+    "filter_change_required": false,
+    "co2_auto_control": false,
+    "heater": true,
+    "have_heater": true,
+    "mode_code": 2,
+    "heater_temp": 15,
+    "fan_speed": 4,
+    "in_temp": 9,
+    "out_temp": 15,
+    "electronic_temp": 26,
+    "electronic_work_time_seconds": 364160,
+    "filter_remain_seconds": 15188503,
+    "device_work_time_seconds": 1579814,
+    "error_code": 0
+  },
+  "note": "request_id совпадает с request_id запроса getStatus апстрима — эхо подтверждено"
+}
