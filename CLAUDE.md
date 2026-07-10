@@ -72,8 +72,9 @@ deploy/             # systemd, docker, nginx, frp
 
 - Формат коммита: `тип(область): описание` — типы: feat, fix, improvement,
   refactor, test, docs.
-- Ветки: `feature/<описание>`, `fix/<описание>`; PR на фазу → `master`.
-  Прямые коммиты в `master` запрещены; `master` всегда зелёный.
+- Соло-разработка без PR: работа в `feature/<фаза-или-описание>`, после
+  верификации фазы (`make lint && make test`) — merge в `master` (ff/merge).
+  `master` всегда зелёный.
 
 ## Безопасность
 

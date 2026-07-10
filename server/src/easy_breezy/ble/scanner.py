@@ -14,7 +14,8 @@ from easy_breezy.ble.transport import TransportError
 
 log = structlog.get_logger("easy_breezy.ble")
 
-_NAME_PREFIXES = ("tion breezer", "tion_", "tion ")
+# Полевой факт (смоук Фазы 1): S4 рекламируется как 'Breezer 4S', без «Tion»
+_NAME_PREFIXES = ("breezer", "tion breezer", "tion_", "tion ")
 _MODEL_HINTS = {"4s": "s4", "s4": "s4", "lite": "lite", "3s": "s3", "s3": "s3"}
 
 

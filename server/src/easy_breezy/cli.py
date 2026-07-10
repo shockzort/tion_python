@@ -145,13 +145,38 @@ def set_params(
 
 
 @app.command()
-def pair(mac: MacArg) -> None:
+def pair(
+    mac: MacArg,
+    wait: Annotated[
+        int, typer.Option(help="Секунд на перевод бризера в режим сопряжения")
+    ] = 0,
+) -> None:
     """Сопрячь бризер (устройство должно быть в режиме сопряжения)."""
 
     async def run() -> None:
-        transport = _make_transport(mac)
-        typer.echo("Подключаюсь… (бризер — в режим сопряжения)")
-        await transport.connect()
+        if wait > 0:
+            typer.echo(f"Переведите бризер в режим сопряжения — жду {wait} с…")
+            for remaining in range(wait, 0, -5):
+                typer.echo(f"  подключение через {remaining} с")
+                await asyncio.sleep(min(5, remaining))
+
+        typer.echo("Подключаюсь… (бризер должен быть в режиме сопряжения)")
+        transport: BleakTransport | None = None
+        for attempt in range(1, 4):
+            candidate = _make_transport(mac)
+            try:
+                await candidate.connect()
+                transport = candidate
+                break
+            except TransportError as exc:
+                typer.echo(f"  попытка {attempt}/3 не удалась: {exc}")
+        if transport is None:
+            typer.echo(
+                "Соединение не установлено. Бризер точно вошёл в режим "
+                "сопряжения (мигание/сигнал)?"
+            )
+            raise typer.Exit(1)
+
         try:
             await transport.pair()
         except TransportError:

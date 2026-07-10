@@ -12,7 +12,7 @@ from collections.abc import AsyncIterator
 from typing import Protocol
 
 import structlog
-from bleak import BleakClient
+from bleak import BleakClient, BleakScanner
 from bleak.exc import BleakError
 
 log = structlog.get_logger("easy_breezy.ble")
@@ -67,11 +67,7 @@ class BleakTransport:
         self._write_uuid = write_uuid
         self._connect_timeout = connect_timeout
         self._operation_timeout = operation_timeout
-        self._client = BleakClient(
-            address,
-            disconnected_callback=self._on_disconnect,
-            timeout=connect_timeout,
-        )
+        self._client: BleakClient | None = None
         self._queue: asyncio.Queue[bytes | None] = asyncio.Queue()
 
     @property
@@ -80,19 +76,58 @@ class BleakTransport:
 
     @property
     def is_connected(self) -> bool:
-        return bool(self._client.is_connected)
+        return self._client is not None and bool(self._client.is_connected)
+
+    def _require_client(self) -> BleakClient:
+        if self._client is None:
+            raise TransportError(f"{self._address}: транспорт не подключён")
+        return self._client
 
     async def connect(self) -> None:
+        """Поиск устройства в эфире и подключение по объекту (паттерн BlueZ).
+
+        Подключение по «голому» адресу ненадёжно (полевой факт смоука Фазы 1) —
+        сначала find_device_by_address, затем connect по BLEDevice.
+        """
         self._queue = asyncio.Queue()
         try:
-            async with asyncio.timeout(self._connect_timeout + 5):
+            async with asyncio.timeout(15.0):
+                device = await BleakScanner.find_device_by_address(
+                    self._address, timeout=14.0
+                )
+        except (BleakError, TimeoutError, OSError) as exc:
+            raise TransportError(f"поиск {self._address} в эфире: {exc}") from exc
+        if device is None:
+            raise TransportError(f"{self._address} не найден в эфире")
+        log.debug("device_found", address=self._address, rssi=None)
+
+        self._client = BleakClient(
+            device,
+            disconnected_callback=self._on_disconnect,
+            timeout=self._connect_timeout,
+        )
+        try:
+            async with asyncio.timeout(self._connect_timeout + 10):
                 await self._client.connect()
+        except (BleakError, TimeoutError, OSError) as exc:
+            raise TransportError(
+                f"LE-соединение с {self._address} не установлено "
+                f"(таймаут {self._connect_timeout} c): {exc}"
+            ) from exc
+        log.debug("le_connected", address=self._address)
+
+        try:
+            async with asyncio.timeout(self._operation_timeout * 2):
                 await self._client.start_notify(self._notify_uuid, self._on_notify)
         except (BleakError, TimeoutError, OSError) as exc:
-            raise TransportError(f"подключение к {self._address}: {exc}") from exc
+            raise TransportError(
+                f"подписка на нотификации {self._address}: {exc}"
+            ) from exc
         log.debug("transport_connected", address=self._address)
 
     async def disconnect(self) -> None:
+        if self._client is None:
+            return
         try:
             async with asyncio.timeout(self._operation_timeout * 2):
                 await self._client.disconnect()
@@ -106,7 +141,7 @@ class BleakTransport:
     async def write(self, packet: bytes) -> None:
         try:
             async with asyncio.timeout(self._operation_timeout):
-                await self._client.write_gatt_char(
+                await self._require_client().write_gatt_char(
                     self._write_uuid, packet, response=False
                 )
         except (BleakError, TimeoutError, OSError) as exc:
@@ -123,14 +158,16 @@ class BleakTransport:
         """OS-уровневое сопряжение (S4 не требует прикладного кадра, спека §1.7)."""
         try:
             async with asyncio.timeout(30.0):
-                await self._client.pair()
+                await self._require_client().pair()
         except (BleakError, TimeoutError, OSError) as exc:
             raise TransportError(f"сопряжение с {self._address}: {exc}") from exc
 
     async def unpair(self) -> None:
+        """Удаление бонда; работает и без активного соединения (BlueZ)."""
+        client = self._client or BleakClient(self._address)
         try:
             async with asyncio.timeout(self._operation_timeout * 2):
-                await self._client.unpair()
+                await client.unpair()
         except (BleakError, TimeoutError, OSError) as exc:
             raise TransportError(f"отвязка {self._address}: {exc}") from exc
 
