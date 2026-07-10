@@ -1,0 +1,75 @@
+[project]
+name = "easy-breezy"
+version = "0.0.1"
+description = "Локальный сервис управления бризерами Tion: BLE, Умный дом Яндекса, PWA, автоматизация"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "structlog>=24.4",
+]
+
+[project.scripts]
+breezy = "easy_breezy.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "pytest-cov>=6.0",
+    "httpx>=0.27",
+    "ruff>=0.8",
+    "black>=24.10",
+    "isort>=5.13",
+    "mypy>=1.13",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/easy_breezy"]
+
+[tool.black]
+line-length = 88
+target-version = ["py312"]
+
+[tool.isort]
+profile = "black"
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+    "E", "W",    # pycodestyle
+    "F",         # pyflakes
+    "B",         # bugbear
+    "I",         # isort
+    "UP",        # pyupgrade
+    "ASYNC",     # запреты блокирующих вызовов в asyncio
+    "T20",       # запрет print()
+    "SIM",       # упрощения
+    "RUF",
+]
+ignore = [
+    "RUF001", "RUF002", "RUF003",  # «неоднозначная» кириллица: проект русскоязычный
+]
+
+[tool.mypy]
+strict = true
+python_version = "3.12"
+mypy_path = "src"
+packages = ["easy_breezy"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-q"
+
+[tool.coverage.run]
+source = ["src/easy_breezy"]
