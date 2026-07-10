@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+dist/
+build/
+
+# Node / UI
+node_modules/
+ui/dist/
+ui/dev-dist/
+
+# Данные и секреты
+.env
+data/
+*.db
+*.sqlite3
+logs/
+backups/
+
+# IDE и инструменты
+.vscode/
+.idea/
+.aider*
+.DS_Store

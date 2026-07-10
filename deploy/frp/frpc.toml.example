@@ -1,0 +1,16 @@
+# frp-клиент (домашний сервер). Копировать в /etc/frp/frpc.toml.
+# Туннелирует локальный HTTP сервиса на VPS; TLS терминируется на VPS (nginx).
+
+serverAddr = "<IP-или-хост-VPS>"
+serverPort = 7000
+auth.method = "token"
+auth.token = "<общий-секрет-с-frps>"
+
+transport.tcpMux = true
+
+[[proxies]]
+name = "easy-breezy-http"
+type = "tcp"
+localIP = "127.0.0.1"
+localPort = 8000
+remotePort = 18000   # на VPS nginx проксирует в этот порт

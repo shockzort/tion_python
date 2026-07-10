@@ -1,0 +1,16 @@
+# systemd-юнит frp-клиента (домашний сервер)
+# sudo cp deploy/frp/frpc.service /etc/systemd/system/ && sudo systemctl enable --now frpc
+
+[Unit]
+Description=frp client — туннель Easy Breezy до VPS
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/frpc -c /etc/frp/frpc.toml
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

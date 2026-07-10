@@ -1,0 +1,12 @@
+# frp-сервер (VPS). Копировать в /etc/frp/frps.toml.
+# Порт 18000 слушается только на localhost VPS — наружу смотрит nginx c TLS.
+
+bindPort = 7000
+auth.method = "token"
+auth.token = "<общий-секрет-с-frpc>"
+
+# Панель мониторинга по желанию:
+#webServer.addr = "127.0.0.1"
+#webServer.port = 7500
+#webServer.user = "admin"
+#webServer.password = "<пароль>"

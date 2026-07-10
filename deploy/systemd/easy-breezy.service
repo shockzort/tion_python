@@ -1,0 +1,28 @@
+# Установка (Raspberry Pi, bare systemd — основной путь):
+#   1. Код в /opt/easy-breezy (git clone), собранный ui/dist рядом.
+#   2. cd /opt/easy-breezy/server && uv sync --no-dev
+#   3. cp .env.example /opt/easy-breezy/.env и заполнить
+#   4. sudo cp deploy/systemd/easy-breezy.service /etc/systemd/system/
+#   5. sudo systemctl enable --now easy-breezy
+# WatchdogSec активируется в Фазе 2 (sd_notify из health-задачи).
+
+[Unit]
+Description=Easy Breezy — управление бризерами Tion
+After=network.target bluetooth.target
+Wants=bluetooth.target
+
+[Service]
+Type=simple
+User=breezy
+Group=breezy
+SupplementaryGroups=bluetooth
+WorkingDirectory=/opt/easy-breezy/server
+EnvironmentFile=/opt/easy-breezy/.env
+ExecStart=/opt/easy-breezy/server/.venv/bin/python -m easy_breezy
+Restart=always
+RestartSec=3
+# Ограничения ресурсов (RPi4)
+MemoryMax=512M
+
+[Install]
+WantedBy=multi-user.target

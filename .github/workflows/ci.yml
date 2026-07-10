@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  server:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: server/uv.lock
+      - name: Установка зависимостей
+        run: uv sync --frozen
+      - name: Ruff
+        run: uv run ruff check src tests
+      - name: Black
+        run: uv run black --check src tests
+      - name: isort
+        run: uv run isort --check-only src tests
+      - name: Mypy (strict)
+        run: uv run mypy
+      - name: Pytest
+        # Гейт покрытия ≥80% включается в Фазе 8 (план §14)
+        run: uv run pytest --cov --cov-report=term
+
+  ui:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - name: Установка зависимостей
+        run: npm ci
+      - name: Линт
+        run: npm run lint
+      - name: Сборка (tsc + vite + PWA)
+        run: npm run build
