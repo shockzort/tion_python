@@ -85,6 +85,10 @@ function handleEvent(queryClient: QueryClient, event: WsEvent) {
     case 'automation.changed':
       void queryClient.invalidateQueries({ queryKey: keys.scenarios })
       void queryClient.invalidateQueries({ queryKey: keys.schedules })
+      void queryClient.invalidateQueries({ queryKey: keys.triggers })
+      break
+    case 'sensor.updated':
+      void queryClient.invalidateQueries({ queryKey: keys.sensors })
       break
   }
 }

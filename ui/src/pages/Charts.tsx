@@ -9,14 +9,20 @@ import {
   YAxis,
 } from 'recharts'
 
-import { useDevices, useTelemetry } from '../api/queries'
+import { useDevices, useSensors, useTelemetry } from '../api/queries'
 import { Card, Spinner } from '../components/ui'
 
-const METRICS = [
+const DEVICE_METRICS = [
   { key: 'out_temp', label: 'После бризера, °C' },
   { key: 'in_temp', label: 'Приток, °C' },
   { key: 'fan_speed', label: 'Скорость' },
   { key: 'heater_temp', label: 'Цель нагрева, °C' },
+] as const
+
+const SENSOR_METRICS = [
+  { key: 'co2', label: 'CO₂, ppm' },
+  { key: 'temperature', label: 'Температура, °C' },
+  { key: 'humidity', label: 'Влажность, %' },
 ] as const
 
 const PERIODS = [
@@ -25,13 +31,14 @@ const PERIODS = [
   { key: '30d', label: '30 дней', seconds: 30 * 86_400, agg: 'hourly' },
 ] as const
 
-type MetricKey = (typeof METRICS)[number]['key']
 type PeriodKey = (typeof PERIODS)[number]['key']
 
 export default function Charts() {
   const devices = useDevices()
-  const [deviceUuid, setDeviceUuid] = useState('')
-  const [metric, setMetric] = useState<MetricKey>('out_temp')
+  const sensors = useSensors()
+  // источник кодируется "device:{uuid}" | "sensor:{id}"
+  const [source, setSource] = useState('')
+  const [metric, setMetric] = useState('out_temp')
   const [periodKey, setPeriodKey] = useState<PeriodKey>('24h')
 
   const period = PERIODS.find((p) => p.key === periodKey) ?? PERIODS[0]
@@ -41,20 +48,36 @@ export default function Charts() {
     [period.seconds],
   )
 
-  const selectedUuid =
-    deviceUuid !== '' ? deviceUuid : (devices.data?.[0]?.uuid ?? '')
+  const fallbackSource =
+    devices.data?.[0] !== undefined
+      ? `device:${devices.data[0].uuid}`
+      : sensors.data?.[0] !== undefined
+        ? `sensor:${sensors.data[0].id}`
+        : ''
+  const selectedSource = source !== '' ? source : fallbackSource
+  const [sourceType, sourceId] = selectedSource.split(':', 2) as [
+    'device' | 'sensor',
+    string,
+  ]
+  const metricOptions = sourceType === 'sensor' ? SENSOR_METRICS : DEVICE_METRICS
+  const activeMetric = metricOptions.some((entry) => entry.key === metric)
+    ? metric
+    : metricOptions[0].key
+
   const series = useTelemetry({
-    source_id: selectedUuid,
-    metric,
+    source_type: sourceType,
+    source_id: sourceId ?? '',
+    metric: activeMetric,
     agg: period.agg,
     from_ts: fromTs,
   })
 
-  if (devices.isPending) return <Spinner label="Загружаем устройства…" />
-  if (devices.isError || devices.data.length === 0) {
+  if (devices.isPending || sensors.isPending)
+    return <Spinner label="Загружаем источники…" />
+  if (devices.isError || selectedSource === '') {
     return (
       <p className="text-sm text-slate-400">
-        Графики появятся, когда будет хотя бы один бризер.
+        Графики появятся, когда будет хотя бы один бризер или датчик.
       </p>
     )
   }
@@ -63,22 +86,27 @@ export default function Charts() {
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
         <select
-          value={selectedUuid}
-          onChange={(event) => setDeviceUuid(event.target.value)}
+          value={selectedSource}
+          onChange={(event) => setSource(event.target.value)}
           className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm"
         >
           {devices.data.map((device) => (
-            <option key={device.uuid} value={device.uuid}>
+            <option key={device.uuid} value={`device:${device.uuid}`}>
               {device.name}
+            </option>
+          ))}
+          {sensors.data?.map((sensor) => (
+            <option key={`s${sensor.id}`} value={`sensor:${sensor.id}`}>
+              Датчик · {sensor.name}
             </option>
           ))}
         </select>
         <select
-          value={metric}
-          onChange={(event) => setMetric(event.target.value as MetricKey)}
+          value={activeMetric}
+          onChange={(event) => setMetric(event.target.value)}
           className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm"
         >
-          {METRICS.map((entry) => (
+          {metricOptions.map((entry) => (
             <option key={entry.key} value={entry.key}>
               {entry.label}
             </option>
