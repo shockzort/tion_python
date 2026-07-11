@@ -8,6 +8,10 @@ from contextlib import asynccontextmanager
 
 import structlog
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.responses import Response
+from starlette.types import Scope
 
 from easy_breezy import __version__
 from easy_breezy.api import ws
@@ -17,6 +21,18 @@ from easy_breezy.container import build_container
 from easy_breezy.logging import setup_logging
 
 log = structlog.get_logger(__name__)
+
+
+class SpaStaticFiles(StaticFiles):
+    """Статика PWA: неизвестные пути отдают index.html (client-side роутер)."""
+
+    async def get_response(self, path: str, scope: Scope) -> Response:
+        try:
+            return await super().get_response(path, scope)
+        except StarletteHTTPException as exc:
+            if exc.status_code == 404:
+                return await super().get_response("index.html", scope)
+            raise
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -54,4 +70,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(commands.router)
     app.include_router(pairing.router)
     app.include_router(ws.router)
+
+    # статика — после роутеров: /api и /ws матчатся первыми
+    if (app_settings.ui_dist / "index.html").exists():
+        app.mount(
+            "/", SpaStaticFiles(directory=app_settings.ui_dist, html=True), name="ui"
+        )
+        log.info("ui_static_mounted", path=str(app_settings.ui_dist))
+    else:
+        log.info("ui_static_absent", path=str(app_settings.ui_dist))
     return app

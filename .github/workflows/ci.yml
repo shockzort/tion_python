@@ -47,5 +47,7 @@ jobs:
         run: npm ci
       - name: Линт
         run: npm run lint
+      - name: Тесты (vitest)
+        run: npm run test
       - name: Сборка (tsc + vite + PWA)
         run: npm run build

@@ -9,9 +9,10 @@ dev:
 dev-ui:
 	cd ui && npm run dev
 
-# Все тесты сервера
+# Все тесты: сервер (pytest) + UI (vitest)
 test:
 	cd server && uv run pytest
+	cd ui && npm run test
 
 # Линтеры и типы: сервер + UI
 lint:

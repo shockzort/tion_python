@@ -28,6 +28,8 @@ class Settings(BaseSettings):
     """Каталог логов; ``None`` — только stdout (journald)."""
     data_dir: Path = Path("data")
     """Каталог данных (БД, бэкапы)."""
+    ui_dist: Path = Path("../ui/dist")
+    """Собранный UI (vite build); каталога нет — сервис работает API-only."""
     database_url: str | None = None
     """Явный URL БД; ``None`` — sqlite в ``data_dir/easy_breezy.db``."""
     fake_devices: int = 0

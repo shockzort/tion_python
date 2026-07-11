@@ -257,6 +257,31 @@ def test_device_crud_rooms(client_app: ClientAndApp) -> None:
     assert journal.status_code == 200
 
 
+def test_spa_static_with_fallback(tmp_path: Path) -> None:
+    """Собранный UI раздаётся сервером; клиентские маршруты → index.html."""
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "index.html").write_text("<html>EB SPA</html>", encoding="utf-8")
+    (dist / "app.js").write_text("console.log(1)", encoding="utf-8")
+
+    app = create_app(
+        Settings(
+            log_level="WARNING",
+            data_dir=tmp_path / "data",
+            fake_devices=0,
+            ui_dist=dist,
+        )
+    )
+    with TestClient(app) as client:
+        assert "EB SPA" in client.get("/").text
+        assert client.get("/app.js").text == "console.log(1)"
+        # клиентский маршрут SPA отдаёт index, а не 404
+        assert "EB SPA" in client.get("/devices").text
+        # API живёт своей жизнью и не перехватывается статикой
+        assert client.get("/api/system/health").status_code == 200
+        assert client.get("/api/devices").status_code == 401
+
+
 def test_pairing_wizard_flow(client_app: ClientAndApp) -> None:
     """Мастер сопряжения на фейках: скан → pair → устройство в реестре."""
     client, app = client_app
