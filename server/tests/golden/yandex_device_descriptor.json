@@ -1,0 +1,61 @@
+{
+  "id": "dev-uuid-1",
+  "name": "Спальня",
+  "room": "Спальня (комната)",
+  "type": "devices.types.ventilation",
+  "capabilities": [
+    { "type": "devices.capabilities.on_off", "retrievable": true },
+    {
+      "type": "devices.capabilities.mode",
+      "retrievable": true,
+      "parameters": {
+        "instance": "fan_speed",
+        "modes": [
+          { "value": "one" },
+          { "value": "two" },
+          { "value": "three" },
+          { "value": "four" },
+          { "value": "five" },
+          { "value": "six" }
+        ]
+      }
+    },
+    {
+      "type": "devices.capabilities.mode",
+      "retrievable": true,
+      "parameters": {
+        "instance": "thermostat",
+        "modes": [{ "value": "heat" }, { "value": "fan_only" }]
+      }
+    },
+    {
+      "type": "devices.capabilities.range",
+      "retrievable": true,
+      "parameters": {
+        "instance": "temperature",
+        "unit": "unit.temperature.celsius",
+        "range": { "min": 10, "max": 30, "precision": 1 }
+      }
+    },
+    {
+      "type": "devices.capabilities.toggle",
+      "retrievable": true,
+      "parameters": { "instance": "mute" }
+    },
+    {
+      "type": "devices.capabilities.toggle",
+      "retrievable": true,
+      "parameters": { "instance": "backlight" }
+    }
+  ],
+  "properties": [
+    {
+      "type": "devices.properties.float",
+      "retrievable": true,
+      "parameters": {
+        "instance": "temperature",
+        "unit": "unit.temperature.celsius"
+      }
+    }
+  ]
+}

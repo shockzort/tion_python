@@ -137,8 +137,11 @@ class AuthService:
 
     # --- сессии ---------------------------------------------------------------
 
-    async def login(self, username: str, password: str) -> tuple[str, User]:
-        """Проверяет пару логин/пароль, возвращает (session-токен, пользователь)."""
+    async def verify_credentials(self, username: str, password: str) -> User:
+        """Проверка пары логин/пароль (троттлинг, без создания сессии).
+
+        Общая точка для логина UI и OAuth-авторизации Яндекса.
+        """
         self._throttle.check(username)
         async with self._db.session() as session:
             user = await UserRepo(session).get_by_username(username)
@@ -147,6 +150,11 @@ class AuthService:
             self._throttle.register_failure(username)
             raise AuthError("неверный логин или пароль")
         self._throttle.register_success(username)
+        return user
+
+    async def login(self, username: str, password: str) -> tuple[str, User]:
+        """Проверяет пару логин/пароль, возвращает (session-токен, пользователь)."""
+        user = await self.verify_credentials(username, password)
 
         token = secrets.token_urlsafe(32)
         now = int(self._now())

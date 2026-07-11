@@ -1,15 +1,22 @@
-"""Общие фикстуры: БД во временном файле, ядро на фейковых бризерах."""
+"""Общие фикстуры: БД во временном файле, ядро на фейках, приложение целиком."""
 
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator, Callable
+import time
+from collections.abc import AsyncIterator, Callable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
+from easy_breezy.app import create_app
 from easy_breezy.ble.fake import FakeS4Device, FakeTransport
+from easy_breezy.config import Settings
+from easy_breezy.container import AppContainer
 from easy_breezy.core.bus import CommandBus
 from easy_breezy.core.events import EventBus
 from easy_breezy.core.holds import HoldManager
@@ -100,3 +107,53 @@ async def core(db: Database) -> AsyncIterator[CoreEnv]:
     yield CoreEnv(db, events, cache, holds, registry, bus, fleet)
     await bus.stop()
     await registry.stop()
+
+
+# --- приложение целиком (интеграционные тесты) --------------------------------
+
+ClientAndApp = tuple[TestClient, FastAPI]
+
+
+@pytest.fixture
+def client_app(tmp_path: Path) -> Iterator[ClientAndApp]:
+    """Настоящий lifespan на фейках: миграции, супервизоры, шина, WS, Яндекс."""
+    app = create_app(
+        Settings(
+            log_level="WARNING",
+            data_dir=tmp_path,
+            fake_devices=3,
+            yandex_client_id="ya-client",
+            yandex_client_secret="ya-secret",
+        )
+    )
+    with TestClient(app) as client:
+        yield client, app
+
+
+def container_of(app: FastAPI) -> AppContainer:
+    container: AppContainer = app.state.container
+    return container
+
+
+def bootstrap_admin(client: TestClient, app: FastAPI) -> None:
+    """Setup-токен из контейнера → первый админ → cookie в клиенте."""
+    setup_token = container_of(app).auth.setup_token
+    assert setup_token is not None
+    response = client.post(
+        "/api/auth/setup",
+        json={
+            "setup_token": setup_token,
+            "username": "admin",
+            "password": "password123",
+        },
+    )
+    assert response.status_code == 201, response.text
+
+
+def wait_devices_online(client: TestClient) -> list[dict[str, Any]]:
+    for _ in range(200):
+        devices: list[dict[str, Any]] = client.get("/api/devices").json()
+        if devices and all(d["connection"] == "online" for d in devices):
+            return devices
+        time.sleep(0.05)
+    raise AssertionError("фейковые бризеры не вышли в online")

@@ -1,62 +1,26 @@
 """Интеграция API: полный цикл на dev-режиме EB_FAKE_DEVICES (без железа).
 
-TestClient поднимает настоящий lifespan: миграции, фейковые бризеры,
-супервизоры, командную шину и WS-хаб — как боевой сервис, но в памяти.
+Фикстура ``client_app`` (conftest) поднимает настоящий lifespan: миграции,
+фейковые бризеры, супервизоры, командную шину и WS-хаб — как боевой сервис.
 """
 
 from __future__ import annotations
 
-import time
-from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
 import pytest
-from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 from easy_breezy.app import create_app
 from easy_breezy.config import Settings
-from easy_breezy.container import AppContainer
-
-ClientAndApp = tuple[TestClient, FastAPI]
-
-
-@pytest.fixture
-def client_app(tmp_path: Path) -> Iterator[ClientAndApp]:
-    app = create_app(Settings(log_level="WARNING", data_dir=tmp_path, fake_devices=3))
-    with TestClient(app) as client:
-        yield client, app
-
-
-def container_of(app: FastAPI) -> AppContainer:
-    container: AppContainer = app.state.container
-    return container
-
-
-def bootstrap_admin(client: TestClient, app: FastAPI) -> None:
-    """Setup-токен из контейнера → первый админ → cookie в клиенте."""
-    setup_token = container_of(app).auth.setup_token
-    assert setup_token is not None
-    response = client.post(
-        "/api/auth/setup",
-        json={
-            "setup_token": setup_token,
-            "username": "admin",
-            "password": "password123",
-        },
-    )
-    assert response.status_code == 201, response.text
-
-
-def wait_devices_online(client: TestClient) -> list[dict[str, Any]]:
-    for _ in range(200):
-        devices: list[dict[str, Any]] = client.get("/api/devices").json()
-        if devices and all(d["connection"] == "online" for d in devices):
-            return devices
-        time.sleep(0.05)
-    raise AssertionError("фейковые бризеры не вышли в online")
+from tests.conftest import (
+    ClientAndApp,
+    bootstrap_admin,
+    container_of,
+    wait_devices_online,
+)
 
 
 def test_requires_auth(client_app: ClientAndApp) -> None:

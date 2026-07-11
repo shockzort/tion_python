@@ -30,6 +30,14 @@ class Settings(BaseSettings):
     """Каталог данных (БД, бэкапы)."""
     ui_dist: Path = Path("../ui/dist")
     """Собранный UI (vite build); каталога нет — сервис работает API-only."""
+
+    # Умный дом Яндекса (Фаза 4); пустые значения — интеграция выключена
+    yandex_client_id: str | None = None
+    yandex_client_secret: str | None = None
+    yandex_redirect_uri: str = "https://social.yandex.net/broker/redirect"
+    """Единственный допустимый redirect_uri линковки (брокер Яндекса)."""
+    yandex_skill_id: str | None = None
+    yandex_callback_token: str | None = None
     database_url: str | None = None
     """Явный URL БД; ``None`` — sqlite в ``data_dir/easy_breezy.db``."""
     fake_devices: int = 0

@@ -18,6 +18,8 @@ from easy_breezy.api import ws
 from easy_breezy.api.rest import auth, commands, devices, groups, pairing, system
 from easy_breezy.config import Settings
 from easy_breezy.container import build_container
+from easy_breezy.integrations.yandex import oauth as yandex_oauth
+from easy_breezy.integrations.yandex import router as yandex_router
 from easy_breezy.logging import setup_logging
 
 log = structlog.get_logger(__name__)
@@ -70,8 +72,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(commands.router)
     app.include_router(pairing.router)
     app.include_router(ws.router)
+    app.include_router(yandex_oauth.router)
+    app.include_router(yandex_router.router)
 
-    # статика — после роутеров: /api и /ws матчатся первыми
+    # статика — после роутеров: /api, /oauth и /v1.0 матчатся первыми
     if (app_settings.ui_dist / "index.html").exists():
         app.mount(
             "/", SpaStaticFiles(directory=app_settings.ui_dist, html=True), name="ui"

@@ -33,6 +33,11 @@ class UserRepo:
     async def get(self, user_id: int) -> User | None:
         return await self._session.get(User, user_id)
 
+    async def first(self) -> User | None:
+        """Первый (единственный в соло-сценарии) пользователь — владелец."""
+        result = await self._session.execute(select(User).order_by(User.id).limit(1))
+        return result.scalar_one_or_none()
+
     async def get_by_username(self, username: str) -> User | None:
         result = await self._session.execute(
             select(User).where(User.username == username)

@@ -28,6 +28,7 @@ from easy_breezy.core.pairing import (
 from easy_breezy.core.registry import DeviceRegistry
 from easy_breezy.core.state import StateCache
 from easy_breezy.core.telemetry import TelemetryService
+from easy_breezy.integrations.yandex.callbacks import YandexNotifier
 from easy_breezy.storage import Database
 from easy_breezy.storage.repos import DeviceRepo
 
@@ -44,6 +45,7 @@ class AppContainer:
     telemetry: TelemetryService
     auth: AuthService
     pairing: PairingService
+    yandex_notifier: YandexNotifier
     ws_connections: set[Any] = field(default_factory=set)
     """Живые WebSocket-клиенты (для /api/system/stats)."""
 
@@ -56,9 +58,11 @@ class AppContainer:
             await seed_fake_devices(self.db, self.settings.fake_devices)
         await self.registry.start()
         await self.telemetry.start()
+        await self.yandex_notifier.start()
         await self.auth.ensure_setup_token()
 
     async def shutdown(self) -> None:
+        await self.yandex_notifier.stop()
         await self.telemetry.stop()
         await self.bus.stop()
         await self.registry.stop()
@@ -83,6 +87,14 @@ def build_container(settings: Settings) -> AppContainer:
         pairing = BlePairingService(
             db, registry, events, transport_factory, scan_gate=scan_gate
         )
+    yandex_notifier = YandexNotifier(
+        db,
+        events,
+        cache,
+        registry,
+        skill_id=settings.yandex_skill_id,
+        callback_token=settings.yandex_callback_token,
+    )
     return AppContainer(
         settings=settings,
         db=db,
@@ -94,6 +106,7 @@ def build_container(settings: Settings) -> AppContainer:
         telemetry=telemetry,
         auth=auth,
         pairing=pairing,
+        yandex_notifier=yandex_notifier,
     )
 
 
