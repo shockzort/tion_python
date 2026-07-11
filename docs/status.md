@@ -23,8 +23,8 @@
 | 0. Каркас, спецификация, требования, CI | ✅ master |
 | 1. BLE-библиотека (кодек, транспорт, драйвер, супервизор) + CLI | ✅ master; живой смоук пройден |
 | 2. Storage + core (event/command bus) + REST/WS + auth | ✅ master; смоук на фейках и железе через REST |
-| 3. UI MVP (дашборд, сопряжение) | ⏳ следующая |
-| 4. Яндекс + внешний доступ (frp/nginx/TLS) = **MVP** | — |
+| 3. UI MVP (дашборд, устройства, мастер сопряжения, PWA) | ✅ master; ⏳ ручной чек-лист на телефоне |
+| 4. Яндекс + внешний доступ (frp/nginx/TLS) = **MVP** | ⏳ следующая |
 | 5–8. Автоматизация, датчики, интенты, полировка | — |
 
 **Железо:** все три бризера сопряжены с ноутбуком (bonding, разово на хост):
@@ -35,31 +35,37 @@ power-cycle. На боевом RPi сопряжение нужно будет п
 
 ## План дальнейшей разработки
 
-### Фаза 3 — UI MVP (ветка `feature/phase-3-ui`, разработка на `EB_FAKE_DEVICES=3`)
+**Хвост Фазы 3 (руки владельца, не блокирует):** на телефоне из LAN — установка
+PWA (иконка, standalone), логин, управление тремя бризерами с дашборда, мастер
+сопряжения на реальном бризере (кнопка ~5 с → скан → бонд), поведение при
+обрыве WS. Запуск: `make build-ui && EB_FAKE_DEVICES=3 make dev` или боевой BLE.
 
-Объём (план §11, §14):
+### Фаза 4 — Яндекс + внешний доступ = MVP (ветка `feature/phase-4-yandex`)
 
-- Бэкенд-хвост для мастера сопряжения: REST скана (15 с, фильтр `Tion Breezer*`)
-  и пейринга (`transport.pair()` уже самодостаточен, ADR-0003) + прогресс по WS.
-- Логин/setup-экран (cookie уже в API), PWA-shell (vite-plugin-pwa, русский).
-- Дашборд: карточки устройств — статус, слайдер скорости 1–6, нагрев + целевая
-  температура, приток/рециркуляция, звук/подсветка, фильтр в днях, бейджи
-  «нет связи»/«ручное управление до HH:MM» (+ кнопка снятия hold).
-- Устройства: мастер сопряжения, переименование, комнаты, группы, удаление.
-- WS-мост: `событие → setQueryData` (TanStack Query), optimistic updates
-  с откатом по `command.finished(error)`.
-- vitest (карточка, мастер) + tsc/oxlint в CI; ручной чек-лист на телефоне:
-  установка PWA, управление тремя бризерами из LAN.
+Объём (план §6, §12–14):
 
-Сложившийся API (Фаза 2): `/api/auth/*` (setup по токену из лога, login-cookie,
-api-токены), `/api/devices` CRUD + `POST …/command` (Idempotency-Key; 200 done
-или 202 pending + финал по WS) + `DELETE …/hold`, `/api/rooms`, `/api/groups`
-(+ веерная команда), `/api/commands` (журнал), `/api/system/health|stats`,
-WS `/api/ws` (`{"topic","data"}`: device.state_changed / device.connection_changed
-/ device.list_changed / command.finished).
+- Решение TLS за 15 минут в консоли Диалогов: IP-сертификат Let's Encrypt
+  (путь A, предпочтение владельца) vs поддомен DuckDNS (путь B) — план §6.
+- OAuth-провайдер: `GET /oauth/authorize` (standalone HTML-логин, не SPA),
+  `POST /oauth/token` (authorization_code + refresh_token); таблицы уже в схеме.
+- `/v1.0/*`: HEAD ping, devices (маппинг §6: on_off, mode fan_speed one…six,
+  thermostat heat/fan_only, range temperature 10–30, mute/backlight, property
+  температура притока), query (только из state cache), action → command bus
+  (дедуп по X-Request-Id), unlink. Bearer — только наш OAuth.
+- Callbacks: state с дебаунсом 1 с и схлопыванием по устройству, discovery
+  при изменении списка; ретраи с backoff.
+- Деплой: frps/frpc + nginx + TLS на VPS, systemd-юниты на Pi (`deploy/`),
+  `docs/yandex-setup.md`; регистрация приватного навыка, креды в `.env`.
+- Contract-тесты на golden-JSON пар запрос/ответ; голосовой чек-лист §14
+  (включи/скорость три/обогрев/22 градуса; обесточенный → «недоступно»);
+  замер голос→действие < 3 с.
 
-### Фаза 4 — Яндекс + внешний доступ = MVP
-OAuth-заглушка + устройства/капабилити Умного дома, frp + nginx + TLS на VPS.
+Сложившийся API: `/api/auth/*` (+ `GET /api/auth/status`), `/api/devices` CRUD
++ `POST …/command` (Idempotency-Key; 200 done или 202 pending + финал по WS) +
+`DELETE …/hold`, `/api/rooms`, `/api/groups` (+ веерная команда),
+`/api/commands`, `/api/pairing/scan|pair` (+ WS pairing.progress),
+`/api/system/health|stats`, WS `/api/ws`. Сервер раздаёт `ui/dist` (SPA,
+`EB_UI_DIST`); dev UI — vite на :5173 с прокси.
 
 ### Фазы 5–8
 Автоматизация (сценарии/расписания/триггеры), датчики CO₂ (MagicAir cloud →
@@ -68,9 +74,10 @@ OAuth-заглушка + устройства/капабилити Умного 
 ## Как возобновить
 
 ```bash
-cd server && uv sync          # зависимости
-make test && make lint        # 95 тестов, ruff/black/isort/mypy strict, oxlint/tsc
-EB_FAKE_DEVICES=3 make dev    # dev-режим на эмуляторах: :8000, setup-токен в логе
+cd server && uv sync && cd ../ui && npm install   # зависимости
+make test && make lint        # 99 pytest + 10 vitest; ruff/mypy strict/oxlint/tsc
+EB_FAKE_DEVICES=3 make dev    # сервер :8000 (+ PWA из ui/dist, если собран)
+make dev-ui                   # vite :5173 с прокси на :8000 (горячая замена)
 uv run breezy state EC:82:9F:A4:90:14   # CLI по протоколу (бонд уже есть)
 ```
 
@@ -79,5 +86,5 @@ uv run breezy state EC:82:9F:A4:90:14   # CLI по протоколу (бонд 
 api-токен (`POST /api/tokens`) с `Authorization: Bearer`.
 
 Локальные ветки `feature/rewrite-phase-0`, `feature/phase-1-ble`,
-`feature/phase-2-core-api` влиты в master — можно удалить;
-`feature-search-and-register-devices` — легаси, тоже можно удалить.
+`feature/phase-2-core-api`, `feature/phase-3-ui` влиты в master — можно
+удалить; `feature-search-and-register-devices` — легаси, тоже можно удалить.
