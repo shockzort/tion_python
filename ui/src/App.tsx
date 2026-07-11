@@ -11,9 +11,12 @@ import {
 
 import { useLogout, useMe } from './api/queries'
 import { Spinner } from './components/ui'
+import Automation from './pages/Automation'
+import Charts from './pages/Charts'
 import Dashboard from './pages/Dashboard'
 import Devices from './pages/Devices'
 import Login from './pages/Login'
+import Settings from './pages/Settings'
 import { startEventBridge } from './ws'
 
 export default function App() {
@@ -23,7 +26,10 @@ export default function App() {
         <Route path="/login" element={<Login />} />
         <Route element={<AuthenticatedLayout />}>
           <Route path="/" element={<Dashboard />} />
+          <Route path="/automation" element={<Automation />} />
+          <Route path="/charts" element={<Charts />} />
           <Route path="/devices" element={<Devices />} />
+          <Route path="/settings" element={<Settings />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
@@ -61,13 +67,23 @@ function AuthenticatedLayout() {
             <img src="/favicon.svg" alt="" className="size-6" />
             <span className="font-semibold tracking-tight">Easy Breezy</span>
           </div>
-          <button
-            type="button"
-            onClick={() => logout.mutate()}
-            className="text-sm text-slate-400 hover:text-slate-200"
-          >
-            {me.data.username} · выйти
-          </button>
+          <div className="flex items-center gap-3 text-sm text-slate-400">
+            <NavLink
+              to="/settings"
+              className={({ isActive }) =>
+                isActive ? 'text-sky-400' : 'hover:text-slate-200'
+              }
+            >
+              {me.data.username}
+            </NavLink>
+            <button
+              type="button"
+              onClick={() => logout.mutate()}
+              className="hover:text-slate-200"
+            >
+              выйти
+            </button>
+          </div>
         </div>
       </header>
 
@@ -78,6 +94,8 @@ function AuthenticatedLayout() {
       <nav className="fixed inset-x-0 bottom-0 border-t border-slate-800 bg-slate-950/95 backdrop-blur">
         <div className="mx-auto flex max-w-3xl">
           <TabLink to="/" label="Дашборд" />
+          <TabLink to="/automation" label="Автоматика" />
+          <TabLink to="/charts" label="Графики" />
           <TabLink to="/devices" label="Устройства" />
         </div>
       </nav>

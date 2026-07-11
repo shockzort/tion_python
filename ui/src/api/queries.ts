@@ -15,7 +15,12 @@ import type {
   Device,
   FoundBreezer,
   Group,
+  GroupCommandResult,
   Room,
+  Scenario,
+  ScenarioAction,
+  Schedule,
+  TelemetrySeries,
   User,
 } from './types'
 
@@ -25,6 +30,9 @@ export const keys = {
   devices: ['devices'] as const,
   rooms: ['rooms'] as const,
   groups: ['groups'] as const,
+  scenarios: ['scenarios'] as const,
+  schedules: ['schedules'] as const,
+  telemetry: (params: Record<string, string>) => ['telemetry', params] as const,
 }
 
 // --- auth ------------------------------------------------------------------
@@ -227,6 +235,117 @@ export function useDeleteGroup() {
     mutationFn: (id: number) =>
       api<undefined>(`/api/groups/${id}`, { method: 'DELETE' }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.groups }),
+  })
+}
+
+// --- автоматизация -----------------------------------------------------------
+
+export type ScenarioBody = { name: string; actions: ScenarioAction[] }
+
+export type ScheduleBody = {
+  name: string
+  cron: string
+  scenario_id: number | null
+  actions?: ScenarioAction[] | null
+  enabled: boolean
+}
+
+export function useScenarios() {
+  return useQuery({
+    queryKey: keys.scenarios,
+    queryFn: () => api<Scenario[]>('/api/scenarios'),
+  })
+}
+
+export function useSchedules() {
+  return useQuery({
+    queryKey: keys.schedules,
+    queryFn: () => api<Schedule[]>('/api/schedules'),
+  })
+}
+
+export function useSaveScenario() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, body }: { id?: number; body: ScenarioBody }) =>
+      id === undefined
+        ? api<Scenario>('/api/scenarios', { method: 'POST', json: body })
+        : api<Scenario>(`/api/scenarios/${id}`, { method: 'PUT', json: body }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.scenarios }),
+  })
+}
+
+export function useDeleteScenario() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) =>
+      api<undefined>(`/api/scenarios/${id}`, { method: 'DELETE' }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: keys.scenarios })
+      void queryClient.invalidateQueries({ queryKey: keys.schedules })
+    },
+  })
+}
+
+export function useRunScenario() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) =>
+      api<GroupCommandResult[]>(`/api/scenarios/${id}/run`, { method: 'POST' }),
+    // состояния и hold-бейджи изменились у затронутых устройств
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.devices }),
+  })
+}
+
+export function useSaveSchedule() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, body }: { id?: number; body: ScheduleBody }) =>
+      id === undefined
+        ? api<Schedule>('/api/schedules', { method: 'POST', json: body })
+        : api<Schedule>(`/api/schedules/${id}`, { method: 'PUT', json: body }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.schedules }),
+  })
+}
+
+export function useDeleteSchedule() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) =>
+      api<undefined>(`/api/schedules/${id}`, { method: 'DELETE' }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.schedules }),
+  })
+}
+
+// --- телеметрия ----------------------------------------------------------------
+
+export function useTelemetry(params: {
+  source_id: string
+  metric: string
+  agg: 'raw' | 'hourly'
+  from_ts: number
+}) {
+  const query = {
+    source_id: params.source_id,
+    metric: params.metric,
+    agg: params.agg,
+    from_ts: String(params.from_ts),
+  }
+  return useQuery({
+    queryKey: keys.telemetry(query),
+    queryFn: () =>
+      api<TelemetrySeries>(`/api/telemetry?${new URLSearchParams(query)}`),
+    enabled: params.source_id !== '',
+    refetchInterval: 60_000,
+  })
+}
+
+// --- настройки -----------------------------------------------------------------
+
+export function useChangePassword() {
+  return useMutation({
+    mutationFn: (body: { current_password: string; new_password: string }) =>
+      api<User>('/api/auth/password', { method: 'POST', json: body }),
   })
 }
 

@@ -82,6 +82,10 @@ function handleEvent(queryClient: QueryClient, event: WsEvent) {
         new CustomEvent('progress', { detail: event.data }),
       )
       break
+    case 'automation.changed':
+      void queryClient.invalidateQueries({ queryKey: keys.scenarios })
+      void queryClient.invalidateQueries({ queryKey: keys.schedules })
+      break
   }
 }
 
