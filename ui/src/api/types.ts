@@ -82,6 +82,38 @@ export type GroupCommandResult = {
   rejected: string | null
 }
 
+export type Sensor = {
+  id: number
+  kind: 'magicair' | 'mqtt'
+  name: string
+  source_key: string
+  room_id: number | null
+  last_values: Partial<Record<'co2' | 'temperature' | 'humidity', number>> | null
+  last_seen_at: number | null
+  stale: boolean
+}
+
+export type SensorMetric = 'co2' | 'temperature' | 'humidity'
+
+export type Trigger = {
+  id: number
+  name: string
+  sensor_id: number
+  metric: SensorMetric
+  op: '>' | '<'
+  threshold: number
+  hysteresis: number
+  cooldown_s: number
+  window_start: string | null
+  window_end: string | null
+  enter_scenario_id: number | null
+  enter_actions: ScenarioAction[] | null
+  exit_scenario_id: number | null
+  exit_actions: ScenarioAction[] | null
+  enabled: boolean
+  is_active: boolean
+}
+
 export type RawPoint = { ts: number; value: number }
 
 export type HourlyPoint = { ts: number; min: number; max: number; avg: number }

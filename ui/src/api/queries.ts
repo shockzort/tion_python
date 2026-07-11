@@ -20,7 +20,9 @@ import type {
   Scenario,
   ScenarioAction,
   Schedule,
+  Sensor,
   TelemetrySeries,
+  Trigger,
   User,
 } from './types'
 
@@ -32,6 +34,8 @@ export const keys = {
   groups: ['groups'] as const,
   scenarios: ['scenarios'] as const,
   schedules: ['schedules'] as const,
+  sensors: ['sensors'] as const,
+  triggers: ['triggers'] as const,
   telemetry: (params: Record<string, string>) => ['telemetry', params] as const,
 }
 
@@ -317,6 +321,88 @@ export function useDeleteSchedule() {
   })
 }
 
+// --- датчики и триггеры ---------------------------------------------------------
+
+export type TriggerBody = {
+  name: string
+  sensor_id: number
+  metric: 'co2' | 'temperature' | 'humidity'
+  op: '>' | '<'
+  threshold: number
+  hysteresis: number
+  cooldown_s: number
+  window_start?: string | null
+  window_end?: string | null
+  enter_scenario_id?: number | null
+  exit_scenario_id?: number | null
+  enabled: boolean
+}
+
+export function useSensors() {
+  return useQuery({
+    queryKey: keys.sensors,
+    queryFn: () => api<Sensor[]>('/api/sensors'),
+    refetchInterval: 60_000, // датчики опрашиваются раз в минуту
+  })
+}
+
+export function useAddSensor() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (body: { name: string; source_key: string }) =>
+      api<Sensor>('/api/sensors', { method: 'POST', json: body }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.sensors }),
+  })
+}
+
+export function useUpdateSensor() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, body }: { id: number; body: { name?: string } }) =>
+      api<Sensor>(`/api/sensors/${id}`, { method: 'PATCH', json: body }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.sensors }),
+  })
+}
+
+export function useDeleteSensor() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) =>
+      api<undefined>(`/api/sensors/${id}`, { method: 'DELETE' }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: keys.sensors })
+      void queryClient.invalidateQueries({ queryKey: keys.triggers })
+    },
+  })
+}
+
+export function useTriggers() {
+  return useQuery({
+    queryKey: keys.triggers,
+    queryFn: () => api<Trigger[]>('/api/triggers'),
+  })
+}
+
+export function useSaveTrigger() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, body }: { id?: number; body: TriggerBody }) =>
+      id === undefined
+        ? api<Trigger>('/api/triggers', { method: 'POST', json: body })
+        : api<Trigger>(`/api/triggers/${id}`, { method: 'PUT', json: body }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.triggers }),
+  })
+}
+
+export function useDeleteTrigger() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) =>
+      api<undefined>(`/api/triggers/${id}`, { method: 'DELETE' }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.triggers }),
+  })
+}
+
 // --- телеметрия ----------------------------------------------------------------
 
 export function useTelemetry(params: {
@@ -324,8 +410,10 @@ export function useTelemetry(params: {
   metric: string
   agg: 'raw' | 'hourly'
   from_ts: number
+  source_type?: 'device' | 'sensor'
 }) {
   const query = {
+    source_type: params.source_type ?? 'device',
     source_id: params.source_id,
     metric: params.metric,
     agg: params.agg,

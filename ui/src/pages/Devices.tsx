@@ -1,16 +1,21 @@
 import { useState } from 'react'
 
+import { ApiError } from '../api/client'
 import {
   useAddGroup,
   useAddRoom,
+  useAddSensor,
   useDeleteDevice,
   useDeleteGroup,
   useDeleteRoom,
+  useDeleteSensor,
   useDevices,
   useGroups,
   useRooms,
+  useSensors,
   useSetGroupMembers,
   useUpdateDevice,
+  useUpdateSensor,
 } from '../api/queries'
 import type { Device, Group } from '../api/types'
 import PairWizard from '../components/PairWizard'
@@ -45,11 +50,106 @@ export default function Devices() {
         )}
       </div>
 
+      <SensorsSection />
       <RoomsSection />
       <GroupsSection devices={devices.data} />
 
       {wizardOpen && <PairWizard onClose={() => setWizardOpen(false)} />}
     </div>
+  )
+}
+
+function SensorsSection() {
+  const sensors = useSensors()
+  const addSensor = useAddSensor()
+  const updateSensor = useUpdateSensor()
+  const deleteSensor = useDeleteSensor()
+  const [name, setName] = useState('')
+  const [topic, setTopic] = useState('')
+  const [error, setError] = useState<string | null>(null)
+
+  const add = async () => {
+    setError(null)
+    if (name.trim() === '' || topic.trim() === '') {
+      setError('нужны имя и MQTT-топик')
+      return
+    }
+    try {
+      await addSensor.mutateAsync({
+        name: name.trim(),
+        source_key: topic.trim(),
+      })
+      setName('')
+      setTopic('')
+    } catch (exc) {
+      setError(exc instanceof ApiError ? exc.message : 'не удалось добавить')
+    }
+  }
+
+  const rename = (id: number, current: string) => {
+    const next = prompt('Новое имя датчика', current)
+    if (next !== null && next.trim() !== '' && next !== current) {
+      updateSensor.mutate({ id, body: { name: next.trim() } })
+    }
+  }
+
+  return (
+    <Card className="flex flex-col gap-3">
+      <h3 className="font-medium">Датчики</h3>
+      <p className="text-xs text-slate-500">
+        MagicAir подхватываются из облака Tion сами (учётка — в настройках
+        сервера). MQTT-датчик публикует JSON или числа в топик и «{'{топик}'}
+        /co2|temperature|humidity».
+      </p>
+      {sensors.data?.map((sensor) => (
+        <div
+          key={sensor.id}
+          className="flex items-center justify-between gap-2 rounded-xl border border-slate-800 px-3 py-2"
+        >
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <p className="truncate text-sm font-medium">{sensor.name}</p>
+              <Badge tone={sensor.stale ? 'warn' : 'ok'}>
+                {sensor.stale ? 'нет данных' : 'на связи'}
+              </Badge>
+            </div>
+            <p className="truncate text-xs text-slate-500">
+              {sensor.kind} · {sensor.source_key}
+            </p>
+          </div>
+          <div className="flex shrink-0 gap-2">
+            <Button variant="ghost" onClick={() => rename(sensor.id, sensor.name)}>
+              Имя
+            </Button>
+            <Button
+              variant="danger"
+              disabled={deleteSensor.isPending}
+              onClick={() => deleteSensor.mutate(sensor.id)}
+            >
+              Удалить
+            </Button>
+          </div>
+        </div>
+      ))}
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <input
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          placeholder="Имя (например, CO₂ спальня)"
+          className="flex-1 rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm outline-none focus:border-sky-500"
+        />
+        <input
+          value={topic}
+          onChange={(event) => setTopic(event.target.value)}
+          placeholder="MQTT-топик (home/bedroom/air)"
+          className="flex-1 rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm outline-none focus:border-sky-500"
+        />
+        <Button onClick={add} disabled={addSensor.isPending}>
+          Добавить датчик
+        </Button>
+      </div>
+      {error !== null && <p className="text-sm text-rose-400">{error}</p>}
+    </Card>
   )
 }
 

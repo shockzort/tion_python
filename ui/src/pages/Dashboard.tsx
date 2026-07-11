@@ -10,13 +10,16 @@ import {
   useRunScenario,
   useScenarios,
   useSendCommand,
+  useSensors,
 } from '../api/queries'
 import DeviceCard from '../components/DeviceCard'
+import SensorCard from '../components/SensorCard'
 import { Button, Spinner } from '../components/ui'
 
 export default function Dashboard() {
   const devices = useDevices()
   const rooms = useRooms()
+  const sensors = useSensors()
   const scenarios = useScenarios()
   const runScenario = useRunScenario()
   const sendCommand = useSendCommand()
@@ -84,6 +87,20 @@ export default function Dashboard() {
               </Button>
             )
           })}
+        </div>
+      )}
+
+      {sensors.data !== undefined && sensors.data.length > 0 && (
+        <div className="grid gap-2 sm:grid-cols-2">
+          {sensors.data.map((sensor) => (
+            <SensorCard
+              key={sensor.id}
+              sensor={sensor}
+              roomName={
+                sensor.room_id !== null ? roomNames.get(sensor.room_id) : undefined
+              }
+            />
+          ))}
         </div>
       )}
 

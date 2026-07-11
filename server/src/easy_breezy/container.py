@@ -16,6 +16,7 @@ from easy_breezy.auth import AuthService
 from easy_breezy.automation.clock import SystemClock
 from easy_breezy.automation.scenarios import ScenarioService
 from easy_breezy.automation.scheduler import SchedulerService, resolve_timezone
+from easy_breezy.automation.triggers import TriggerEngine
 from easy_breezy.ble.fake import FakeS4Device, FakeTransport, fake_mac
 from easy_breezy.ble.protocol.s4 import GATT_NOTIFY, GATT_WRITE
 from easy_breezy.ble.transport import BleakTransport, BleTransport
@@ -29,8 +30,11 @@ from easy_breezy.core.pairing import (
     PairingService,
 )
 from easy_breezy.core.registry import DeviceRegistry
+from easy_breezy.core.sensors import SensorIngest
 from easy_breezy.core.state import StateCache
 from easy_breezy.core.telemetry import TelemetryService
+from easy_breezy.integrations.magicair.client import MagicAirPoller
+from easy_breezy.integrations.mqtt.client import MqttIngest
 from easy_breezy.integrations.yandex.callbacks import YandexNotifier
 from easy_breezy.storage import Database
 from easy_breezy.storage.repos import DeviceRepo
@@ -51,6 +55,10 @@ class AppContainer:
     yandex_notifier: YandexNotifier
     scenarios: ScenarioService
     scheduler: SchedulerService
+    sensors: SensorIngest
+    triggers: TriggerEngine
+    magicair: MagicAirPoller
+    mqtt: MqttIngest
     ws_connections: set[Any] = field(default_factory=set)
     """Живые WebSocket-клиенты (для /api/system/stats)."""
 
@@ -65,9 +73,15 @@ class AppContainer:
         await self.telemetry.start()
         await self.yandex_notifier.start()
         await self.scheduler.start()
+        await self.triggers.start()
+        await self.magicair.start()
+        await self.mqtt.start()
         await self.auth.ensure_setup_token()
 
     async def shutdown(self) -> None:
+        await self.mqtt.stop()
+        await self.magicair.stop()
+        await self.triggers.stop()
         await self.scheduler.stop()
         await self.yandex_notifier.stop()
         await self.telemetry.stop()
@@ -103,13 +117,17 @@ def build_container(settings: Settings) -> AppContainer:
         callback_token=settings.yandex_callback_token,
     )
     scenarios = ScenarioService(db, bus)
-    scheduler = SchedulerService(
-        db,
-        scenarios,
-        events,
-        SystemClock(),
-        tz=resolve_timezone(settings.timezone),
+    clock = SystemClock()
+    tz = resolve_timezone(settings.timezone)
+    scheduler = SchedulerService(db, scenarios, events, clock, tz=tz)
+    sensors = SensorIngest(db, events)
+    triggers = TriggerEngine(db, scenarios, events, clock, tz=tz)
+    magicair = MagicAirPoller(
+        sensors,
+        email=settings.magicair_email,
+        password=settings.magicair_password,
     )
+    mqtt = MqttIngest(db, sensors, events, url=settings.mqtt_url)
     return AppContainer(
         settings=settings,
         db=db,
@@ -124,6 +142,10 @@ def build_container(settings: Settings) -> AppContainer:
         yandex_notifier=yandex_notifier,
         scenarios=scenarios,
         scheduler=scheduler,
+        sensors=sensors,
+        triggers=triggers,
+        magicair=magicair,
+        mqtt=mqtt,
     )
 
 

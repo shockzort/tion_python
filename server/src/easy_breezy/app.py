@@ -22,6 +22,7 @@ from easy_breezy.api.rest import (
     devices,
     groups,
     pairing,
+    sensors,
     system,
     telemetry,
 )
@@ -96,6 +97,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(commands.router)
     app.include_router(pairing.router)
     app.include_router(automation.router)
+    app.include_router(sensors.router)
     app.include_router(telemetry.router)
     app.include_router(ws.router)
     app.include_router(yandex_oauth.router)

@@ -37,6 +37,46 @@ async def wait_for_condition(
         await asyncio.sleep(0.01)
 
 
+class FakeClock:
+    """Часы time-travel: время двигается только ``advance``."""
+
+    def __init__(self, start: float) -> None:
+        self._now = start
+        self._sleepers: list[tuple[float, asyncio.Future[None]]] = []
+
+    def now(self) -> float:
+        return self._now
+
+    async def sleep(self, seconds: float) -> None:
+        deadline = self._now + max(seconds, 0.0)
+        future: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+        entry = (deadline, future)
+        self._sleepers.append(entry)
+        try:
+            await future
+        finally:
+            if entry in self._sleepers:
+                self._sleepers.remove(entry)
+
+    async def advance(self, seconds: float) -> None:
+        """Продвигает время, будя спящих по порядку дедлайнов."""
+        target = self._now + seconds
+        while True:
+            due = [entry for entry in self._sleepers if entry[0] <= target]
+            if not due:
+                break
+            deadline = min(entry[0] for entry in due)
+            self._now = deadline
+            for entry_deadline, future in list(self._sleepers):
+                if entry_deadline <= deadline and not future.done():
+                    future.set_result(None)
+            for _ in range(10):  # дать проснувшимся задачам исполниться
+                await asyncio.sleep(0)
+        self._now = target
+        for _ in range(10):
+            await asyncio.sleep(0)
+
+
 @dataclass
 class FakeFleet:
     """Фейковые бризеры по MAC: состояние переживает переподключения.

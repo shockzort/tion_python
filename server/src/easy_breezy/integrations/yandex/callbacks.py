@@ -20,6 +20,7 @@ from easy_breezy.ble.supervisor import ConnectionState
 from easy_breezy.core.events import (
     TOPIC_CONNECTION_CHANGED,
     TOPIC_DEVICE_LIST_CHANGED,
+    TOPIC_SENSOR_UPDATED,
     TOPIC_STATE_CHANGED,
     EventBus,
     Subscription,
@@ -29,7 +30,9 @@ from easy_breezy.core.registry import DeviceRegistry
 from easy_breezy.core.state import StateCache
 from easy_breezy.integrations.yandex import mapping
 from easy_breezy.storage import Database
-from easy_breezy.storage.repos import UserRepo
+from easy_breezy.storage.repos import SensorRepo, UserRepo
+
+SENSOR_ID_PREFIX = "sensor:"
 
 log = structlog.get_logger(__name__)
 
@@ -82,7 +85,10 @@ class YandexNotifier:
             return
         self._client = self._external_client or httpx.AsyncClient(timeout=10.0)
         self._subscription = self._events.subscribe(
-            TOPIC_STATE_CHANGED, TOPIC_CONNECTION_CHANGED, TOPIC_DEVICE_LIST_CHANGED
+            TOPIC_STATE_CHANGED,
+            TOPIC_CONNECTION_CHANGED,
+            TOPIC_DEVICE_LIST_CHANGED,
+            TOPIC_SENSOR_UPDATED,
         )
         self._tasks = [
             asyncio.create_task(
@@ -110,6 +116,9 @@ class YandexNotifier:
         async for event in subscription:
             if event.topic == TOPIC_DEVICE_LIST_CHANGED:
                 await self._post_with_retries("/callback/discovery", self._envelope())
+            elif event.topic == TOPIC_SENSOR_UPDATED:
+                self._dirty.add(f"{SENSOR_ID_PREFIX}{event.data['sensor_id']}")
+                self._dirty_flag.set()
             else:
                 device_uuid = event.data.get("device_uuid")
                 if isinstance(device_uuid, str):
@@ -126,9 +135,25 @@ class YandexNotifier:
                 continue
             payload = self._envelope()
             payload["payload"]["devices"] = [
-                self._device_state(device_uuid) for device_uuid in sorted(batch)
+                await self._entity_state(key) for key in sorted(batch)
             ]
             await self._post_with_retries("/callback/state", payload)
+
+    async def _entity_state(self, key: str) -> dict[str, Any]:
+        if key.startswith(SENSOR_ID_PREFIX):
+            return await self._sensor_state(key)
+        return self._device_state(key)
+
+    async def _sensor_state(self, key: str) -> dict[str, Any]:
+        sensor_id = int(key.removeprefix(SENSOR_ID_PREFIX))
+        async with self._db.session() as session:
+            sensor = await SensorRepo(session).get(sensor_id)
+        if sensor is None or not sensor.last_values:
+            return {"id": key, "error_code": "DEVICE_UNREACHABLE"}
+        return {
+            "id": key,
+            "properties": mapping.sensor_property_states(sensor.last_values),
+        }
 
     def _envelope(self) -> dict[str, Any]:
         return {

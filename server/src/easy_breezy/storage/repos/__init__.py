@@ -9,6 +9,7 @@ from easy_breezy.storage.repos.automation import ScenarioRepo, ScheduleRepo
 from easy_breezy.storage.repos.commands import CommandRepo
 from easy_breezy.storage.repos.devices import DeviceRepo, RoomRepo
 from easy_breezy.storage.repos.groups import GroupRepo
+from easy_breezy.storage.repos.sensors import SensorRepo, TriggerRepo
 from easy_breezy.storage.repos.settings import SettingsRepo
 from easy_breezy.storage.repos.telemetry import TelemetryPoint, TelemetryRepo
 
@@ -20,9 +21,11 @@ __all__ = [
     "RoomRepo",
     "ScenarioRepo",
     "ScheduleRepo",
+    "SensorRepo",
     "SessionRepo",
     "SettingsRepo",
     "TelemetryPoint",
     "TelemetryRepo",
+    "TriggerRepo",
     "UserRepo",
 ]

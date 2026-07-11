@@ -4,27 +4,43 @@ import { ApiError } from '../api/client'
 import {
   useDeleteScenario,
   useDeleteSchedule,
+  useDeleteTrigger,
   useDevices,
   useGroups,
   useRunScenario,
   useSaveScenario,
   useSaveSchedule,
+  useSaveTrigger,
   useScenarios,
   useSchedules,
+  useSensors,
+  useTriggers,
   type ScenarioBody,
   type ScheduleBody,
+  type TriggerBody,
 } from '../api/queries'
 import type {
   CommandBody,
   Scenario,
   ScenarioAction,
   Schedule,
+  Sensor,
+  SensorMetric,
+  Trigger,
 } from '../api/types'
 import { Badge, Button, Card, Spinner, Toggle } from '../components/ui'
 import { cronFromPreset, DAY_LABELS, describeCron, presetFromCron } from '../lib/cron'
 
+const METRIC_LABELS: Record<SensorMetric, string> = {
+  co2: 'CO₂, ppm',
+  temperature: 'температура, °C',
+  humidity: 'влажность, %',
+}
+
 export default function Automation() {
-  const [tab, setTab] = useState<'scenarios' | 'schedules'>('scenarios')
+  const [tab, setTab] = useState<'scenarios' | 'schedules' | 'triggers'>(
+    'scenarios',
+  )
   return (
     <div className="flex flex-col gap-4">
       <div className="flex gap-2">
@@ -38,8 +54,15 @@ export default function Automation() {
           label="Расписания"
           onClick={() => setTab('schedules')}
         />
+        <TabButton
+          active={tab === 'triggers'}
+          label="Триггеры"
+          onClick={() => setTab('triggers')}
+        />
       </div>
-      {tab === 'scenarios' ? <ScenariosTab /> : <SchedulesTab />}
+      {tab === 'scenarios' && <ScenariosTab />}
+      {tab === 'schedules' && <SchedulesTab />}
+      {tab === 'triggers' && <TriggersTab />}
     </div>
   )
 }
@@ -660,4 +683,344 @@ function plural(n: number, one: string, few: string, many: string): string {
   if (mod10 === 1 && mod100 !== 11) return one
   if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return few
   return many
+}
+
+// --- триггеры ------------------------------------------------------------------
+
+function TriggersTab() {
+  const triggers = useTriggers()
+  const sensors = useSensors()
+  const scenarios = useScenarios()
+  const deleteTrigger = useDeleteTrigger()
+  const saveTrigger = useSaveTrigger()
+  const [editing, setEditing] = useState<Trigger | 'new' | null>(null)
+
+  if (triggers.isPending || sensors.isPending || scenarios.isPending)
+    return <Spinner label="Загружаем триггеры…" />
+  if (triggers.isError || sensors.isError || scenarios.isError)
+    return <p className="text-rose-400">Не удалось загрузить триггеры.</p>
+
+  if (sensors.data.length === 0) {
+    return (
+      <p className="text-sm text-slate-400">
+        Триггеры реагируют на датчики (CO₂, температура, влажность), а датчиков
+        пока нет. MagicAir появится сам после ввода учётки Tion в настройках
+        сервера; MQTT-датчик добавляется на вкладке «Устройства».
+      </p>
+    )
+  }
+  if (editing !== null) {
+    return (
+      <TriggerEditor
+        trigger={editing === 'new' ? null : editing}
+        sensors={sensors.data}
+        scenarios={scenarios.data}
+        onClose={() => setEditing(null)}
+      />
+    )
+  }
+
+  const sensorNames = new Map(sensors.data.map((s) => [s.id, s.name]))
+  const scenarioNames = new Map(scenarios.data.map((s) => [s.id, s.name]))
+
+  return (
+    <div className="flex flex-col gap-3">
+      {triggers.data.length === 0 && (
+        <p className="text-sm text-slate-400">
+          Пример: «CO₂ &gt; 1000 → Турбо, при возврате ниже 800 → Обычный».
+          Гистерезис защищает от дребезга на границе порога.
+        </p>
+      )}
+      {triggers.data.map((trigger) => (
+        <Card key={trigger.id} className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <p className="font-medium">{trigger.name}</p>
+              {trigger.is_active && <Badge tone="warn">сработал</Badge>}
+              {!trigger.enabled && <Badge tone="muted">выключен</Badge>}
+            </div>
+            <p className="truncate text-xs text-slate-400">
+              {sensorNames.get(trigger.sensor_id) ?? 'датчик'} ·{' '}
+              {METRIC_LABELS[trigger.metric]} {trigger.op} {trigger.threshold}
+              {trigger.enter_scenario_id !== null &&
+                ` → ${scenarioNames.get(trigger.enter_scenario_id) ?? 'сценарий'}`}
+              {trigger.window_start !== null &&
+                ` · ${trigger.window_start}–${trigger.window_end}`}
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <Toggle
+              label=""
+              checked={trigger.enabled}
+              disabled={saveTrigger.isPending}
+              onChange={(enabled) =>
+                saveTrigger.mutate({
+                  id: trigger.id,
+                  body: { ...triggerToBody(trigger), enabled },
+                })
+              }
+            />
+            <Button variant="ghost" onClick={() => setEditing(trigger)}>
+              Изменить
+            </Button>
+            <Button
+              variant="danger"
+              disabled={deleteTrigger.isPending}
+              onClick={() => deleteTrigger.mutate(trigger.id)}
+            >
+              Удалить
+            </Button>
+          </div>
+        </Card>
+      ))}
+      <Button variant="ghost" onClick={() => setEditing('new')}>
+        + Новый триггер
+      </Button>
+    </div>
+  )
+}
+
+function triggerToBody(trigger: Trigger): TriggerBody {
+  return {
+    name: trigger.name,
+    sensor_id: trigger.sensor_id,
+    metric: trigger.metric,
+    op: trigger.op,
+    threshold: trigger.threshold,
+    hysteresis: trigger.hysteresis,
+    cooldown_s: trigger.cooldown_s,
+    window_start: trigger.window_start,
+    window_end: trigger.window_end,
+    enter_scenario_id: trigger.enter_scenario_id,
+    exit_scenario_id: trigger.exit_scenario_id,
+    enabled: trigger.enabled,
+  }
+}
+
+function TriggerEditor({
+  trigger,
+  sensors,
+  scenarios,
+  onClose,
+}: {
+  trigger: Trigger | null
+  sensors: Sensor[]
+  scenarios: Scenario[]
+  onClose: () => void
+}) {
+  const saveTrigger = useSaveTrigger()
+  const [name, setName] = useState(trigger?.name ?? '')
+  const [sensorId, setSensorId] = useState(
+    String(trigger?.sensor_id ?? sensors[0]?.id ?? ''),
+  )
+  const [metric, setMetric] = useState<SensorMetric>(trigger?.metric ?? 'co2')
+  const [op, setOp] = useState<'>' | '<'>(trigger?.op ?? '>')
+  const [threshold, setThreshold] = useState(String(trigger?.threshold ?? 1000))
+  const [hysteresis, setHysteresis] = useState(String(trigger?.hysteresis ?? 200))
+  const [cooldownMin, setCooldownMin] = useState(
+    String(Math.round((trigger?.cooldown_s ?? 0) / 60)),
+  )
+  const [useWindow, setUseWindow] = useState(trigger?.window_start != null)
+  const [windowStart, setWindowStart] = useState(trigger?.window_start ?? '08:00')
+  const [windowEnd, setWindowEnd] = useState(trigger?.window_end ?? '22:00')
+  const [enterScenario, setEnterScenario] = useState(
+    trigger?.enter_scenario_id != null ? String(trigger.enter_scenario_id) : '',
+  )
+  const [exitScenario, setExitScenario] = useState(
+    trigger?.exit_scenario_id != null ? String(trigger.exit_scenario_id) : '',
+  )
+  const [error, setError] = useState<string | null>(null)
+
+  const inputClass =
+    'rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-slate-200'
+
+  const save = async () => {
+    setError(null)
+    if (name.trim() === '') {
+      setError('дайте триггеру имя')
+      return
+    }
+    const parsedThreshold = Number(threshold)
+    const parsedHysteresis = Number(hysteresis)
+    const parsedCooldown = Number(cooldownMin)
+    if (!Number.isFinite(parsedThreshold)) {
+      setError('порог — число')
+      return
+    }
+    if (!Number.isFinite(parsedHysteresis) || parsedHysteresis < 0) {
+      setError('гистерезис — неотрицательное число')
+      return
+    }
+    if (enterScenario === '' && exitScenario === '') {
+      setError('выберите сценарий на вход и/или на выход')
+      return
+    }
+    const body: TriggerBody = {
+      name: name.trim(),
+      sensor_id: Number(sensorId),
+      metric,
+      op,
+      threshold: parsedThreshold,
+      hysteresis: parsedHysteresis,
+      cooldown_s: Math.max(0, Math.round(parsedCooldown * 60)),
+      window_start: useWindow ? windowStart : null,
+      window_end: useWindow ? windowEnd : null,
+      enter_scenario_id: enterScenario === '' ? null : Number(enterScenario),
+      exit_scenario_id: exitScenario === '' ? null : Number(exitScenario),
+      enabled: trigger?.enabled ?? true,
+    }
+    try {
+      await saveTrigger.mutateAsync({ id: trigger?.id, body })
+      onClose()
+    } catch (exc) {
+      setError(exc instanceof ApiError ? exc.message : 'не удалось сохранить')
+    }
+  }
+
+  return (
+    <Card className="flex flex-col gap-3">
+      <p className="font-medium">
+        {trigger === null ? 'Новый триггер' : `Триггер «${trigger.name}»`}
+      </p>
+      <input
+        value={name}
+        onChange={(event) => setName(event.target.value)}
+        placeholder="Название (например, Душно в спальне)"
+        className="rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm outline-none focus:border-sky-500"
+      />
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+        <label className="flex flex-col gap-1 text-xs text-slate-400">
+          Датчик
+          <select
+            value={sensorId}
+            onChange={(event) => setSensorId(event.target.value)}
+            className={inputClass}
+          >
+            {sensors.map((sensor) => (
+              <option key={sensor.id} value={sensor.id}>
+                {sensor.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1 text-xs text-slate-400">
+          Метрика
+          <select
+            value={metric}
+            onChange={(event) => setMetric(event.target.value as SensorMetric)}
+            className={inputClass}
+          >
+            {Object.entries(METRIC_LABELS).map(([key, label]) => (
+              <option key={key} value={key}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1 text-xs text-slate-400">
+          Условие входа
+          <div className="flex gap-1">
+            <select
+              value={op}
+              onChange={(event) => setOp(event.target.value as '>' | '<')}
+              className={inputClass}
+              aria-label="оператор"
+            >
+              <option value=">">&gt;</option>
+              <option value="<">&lt;</option>
+            </select>
+            <input
+              value={threshold}
+              onChange={(event) => setThreshold(event.target.value)}
+              inputMode="decimal"
+              className={`${inputClass} w-full`}
+              aria-label="порог"
+            />
+          </div>
+        </label>
+        <label className="flex flex-col gap-1 text-xs text-slate-400">
+          Гистерезис (выход)
+          <input
+            value={hysteresis}
+            onChange={(event) => setHysteresis(event.target.value)}
+            inputMode="decimal"
+            className={inputClass}
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-xs text-slate-400">
+          Кулдаун, мин
+          <input
+            value={cooldownMin}
+            onChange={(event) => setCooldownMin(event.target.value)}
+            inputMode="numeric"
+            className={inputClass}
+          />
+        </label>
+      </div>
+
+      <Toggle label="Только в окне времени" checked={useWindow} onChange={setUseWindow} />
+      {useWindow && (
+        <div className="flex gap-2">
+          <input
+            type="time"
+            value={windowStart}
+            onChange={(event) => setWindowStart(event.target.value)}
+            className={inputClass}
+            aria-label="начало окна"
+          />
+          <span className="self-center text-slate-500">—</span>
+          <input
+            type="time"
+            value={windowEnd}
+            onChange={(event) => setWindowEnd(event.target.value)}
+            className={inputClass}
+            aria-label="конец окна"
+          />
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <label className="flex flex-col gap-1 text-xs text-slate-400">
+          Сценарий при срабатывании
+          <select
+            value={enterScenario}
+            onChange={(event) => setEnterScenario(event.target.value)}
+            className={inputClass}
+          >
+            <option value="">— ничего</option>
+            {scenarios.map((scenario) => (
+              <option key={scenario.id} value={scenario.id}>
+                {scenario.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1 text-xs text-slate-400">
+          Сценарий при возврате к норме
+          <select
+            value={exitScenario}
+            onChange={(event) => setExitScenario(event.target.value)}
+            className={inputClass}
+          >
+            <option value="">— ничего</option>
+            {scenarios.map((scenario) => (
+              <option key={scenario.id} value={scenario.id}>
+                {scenario.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      {error !== null && <p className="text-sm text-rose-400">{error}</p>}
+      <div className="flex gap-2">
+        <Button onClick={save} disabled={saveTrigger.isPending}>
+          {saveTrigger.isPending ? 'Сохраняем…' : 'Сохранить'}
+        </Button>
+        <Button variant="ghost" onClick={onClose}>
+          Отмена
+        </Button>
+      </div>
+    </Card>
+  )
 }
