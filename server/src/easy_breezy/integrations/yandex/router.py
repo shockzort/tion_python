@@ -25,15 +25,19 @@ from easy_breezy.ble.supervisor import ConnectionState
 from easy_breezy.container import AppContainer
 from easy_breezy.core.bus import CommandError
 from easy_breezy.core.model import state_to_dict
+from easy_breezy.core.sensors import METRICS
+from easy_breezy.core.sensors import STALE_AFTER_SECONDS as SENSOR_STALE
 from easy_breezy.integrations.yandex import mapping
 from easy_breezy.storage.models import CommandSource, CommandStatus, Device
-from easy_breezy.storage.repos import DeviceRepo, RoomRepo
+from easy_breezy.storage.repos import DeviceRepo, RoomRepo, SensorRepo
 from easy_breezy.storage.repos.oauth import OAuthRepo
 
 log = structlog.get_logger(__name__)
 
 ACTION_WAIT_SECONDS = 2.2
 STALE_AFTER_SECONDS = 120.0
+
+SENSOR_ID_PREFIX = "sensor:"
 
 ERROR_UNREACHABLE = "DEVICE_UNREACHABLE"
 ERROR_NOT_FOUND = "DEVICE_NOT_FOUND"
@@ -103,20 +107,28 @@ async def list_devices(
 ) -> dict[str, Any]:
     async with container.db.session() as session:
         devices = await DeviceRepo(session).list_active()
+        sensors = await SensorRepo(session).list_all()
         rooms = {room.id: room.name for room in await RoomRepo(session).list_all()}
+    descriptors = [
+        mapping.device_descriptor(
+            device.uuid,
+            device.name,
+            rooms.get(device.room_id) if device.room_id else None,
+        )
+        for device in devices
+    ]
+    descriptors += [
+        mapping.sensor_descriptor(
+            f"{SENSOR_ID_PREFIX}{sensor.id}",
+            sensor.name,
+            rooms.get(sensor.room_id) if sensor.room_id else None,
+            sorted(sensor.last_values) if sensor.last_values else list(METRICS),
+        )
+        for sensor in sensors
+    ]
     return {
         "request_id": _request_id(x_request_id),
-        "payload": {
-            "user_id": str(user_id),
-            "devices": [
-                mapping.device_descriptor(
-                    device.uuid,
-                    device.name,
-                    rooms.get(device.room_id) if device.room_id else None,
-                )
-                for device in devices
-            ],
-        },
+        "payload": {"user_id": str(user_id), "devices": descriptors},
     }
 
 
@@ -130,6 +142,9 @@ async def query_devices(
     """Состояния только из кэша — BLE в запросном пути запрещён (план §6)."""
     results: list[dict[str, Any]] = []
     for ref in body.devices:
+        if ref.id.startswith(SENSOR_ID_PREFIX):
+            results.append(await _sensor_query(container, ref.id))
+            continue
         snapshot = container.cache.get(ref.id)
         if snapshot is None:
             results.append({"id": ref.id, "error_code": ERROR_NOT_FOUND})
@@ -177,10 +192,38 @@ async def unlink(
     return {"request_id": _request_id(x_request_id)}
 
 
+async def _sensor_query(container: AppContainer, ref_id: str) -> dict[str, Any]:
+    """Датчик для /query: последние значения из реестра, стейл — недоступен."""
+    try:
+        sensor_id = int(ref_id.removeprefix(SENSOR_ID_PREFIX))
+    except ValueError:
+        return {"id": ref_id, "error_code": ERROR_NOT_FOUND}
+    async with container.db.session() as session:
+        sensor = await SensorRepo(session).get(sensor_id)
+    if sensor is None:
+        return {"id": ref_id, "error_code": ERROR_NOT_FOUND}
+    stale = (
+        sensor.last_seen_at is None or time.time() - sensor.last_seen_at > SENSOR_STALE
+    )
+    if stale or not sensor.last_values:
+        return {"id": ref_id, "error_code": ERROR_UNREACHABLE}
+    return {
+        "id": ref_id,
+        "properties": mapping.sensor_property_states(sensor.last_values),
+    }
+
+
 async def _act_on_device(
     container: AppContainer, request_id: str, device: ActionDevice
 ) -> dict[str, Any]:
     capabilities = [capability.model_dump() for capability in device.capabilities]
+
+    if device.id.startswith(SENSOR_ID_PREFIX):
+        return _device_result(
+            device,
+            error_code=mapping.ERROR_INVALID_ACTION,
+            message="датчик не принимает команды",
+        )
 
     stored = await _active_device(container, device.id)
     if stored is None:

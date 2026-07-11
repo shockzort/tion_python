@@ -46,6 +46,13 @@ class Settings(BaseSettings):
     """Окно manual-hold после ручной команды (ADR-0005)."""
     timezone: str | None = None
     """IANA-таймзона расписаний (например, Europe/Moscow); None — системная."""
+
+    # Датчики (Фаза 6); пустые значения — соответствующий источник выключен
+    magicair_email: str | None = None
+    magicair_password: str | None = None
+    """Учётка приложения Tion MagicAir (облачный опрос CO₂-датчиков)."""
+    mqtt_url: str | None = None
+    """Брокер сторонних датчиков: mqtt://[user:pass@]host[:1883]."""
     command_wait_seconds: float = 5.0
     """Сколько REST ждёт итог команды синхронно (иначе 202 + WS)."""
     session_ttl_days: int = 30

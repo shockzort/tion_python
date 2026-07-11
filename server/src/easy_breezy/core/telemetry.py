@@ -1,10 +1,9 @@
 """Телеметрия: рекордер событий состояния + ежечасное обслуживание (план §10).
 
-Рекордер пишет метрики устройств из ``device.state_changed`` в
-``telemetry_raw``; обслуживание раз в час агрегирует завершённые часы в
-``telemetry_hourly`` (с догоном пропущенных после простоя — raw живёт 7 дней)
-и применяет ретенции. Датчики CO₂ добавятся в Фазе 6 подпиской на
-``sensor.updated``.
+Рекордер пишет метрики устройств из ``device.state_changed`` и метрики
+датчиков из ``sensor.updated`` в ``telemetry_raw``; обслуживание раз в час
+агрегирует завершённые часы в ``telemetry_hourly`` (с догоном пропущенных
+после простоя — raw живёт 7 дней) и применяет ретенции.
 """
 
 from __future__ import annotations
@@ -18,6 +17,7 @@ from typing import Any
 import structlog
 
 from easy_breezy.core.events import (
+    TOPIC_SENSOR_UPDATED,
     TOPIC_STATE_CHANGED,
     Event,
     EventBus,
@@ -70,7 +70,9 @@ class TelemetryService:
 
     async def start(self) -> None:
         # подписка синхронно — события между start() и запуском задачи не теряются
-        self._subscription = self._events.subscribe(TOPIC_STATE_CHANGED)
+        self._subscription = self._events.subscribe(
+            TOPIC_STATE_CHANGED, TOPIC_SENSOR_UPDATED
+        )
         self._tasks = [
             asyncio.create_task(
                 self._record_loop(self._subscription), name="telemetry-recorder"
@@ -98,12 +100,18 @@ class TelemetryService:
                 log.exception("telemetry_record_failed")
 
     async def _record(self, event: Event) -> None:
-        device_uuid: str = event.data["device_uuid"]
-        metrics = _device_metrics(event.data["state"])
+        if event.topic == TOPIC_SENSOR_UPDATED:
+            source_type = "sensor"
+            source_id = str(event.data["sensor_id"])
+            metrics: dict[str, float] = event.data["metrics"]
+        else:
+            source_type = "device"
+            source_id = event.data["device_uuid"]
+            metrics = _device_metrics(event.data["state"])
         ts = int(self._now())
         async with self._db.session() as session:
             await TelemetryRepo(session).add_points(
-                TelemetryPoint(ts, "device", device_uuid, metric, value)
+                TelemetryPoint(ts, source_type, source_id, metric, value)
                 for metric, value in metrics.items()
             )
 

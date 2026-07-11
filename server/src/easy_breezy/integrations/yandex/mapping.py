@@ -17,11 +17,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 from easy_breezy.core.model import StateDelta
 
 DEVICE_TYPE = "devices.types.ventilation"
+SENSOR_TYPE = "devices.types.sensor.climate"
+"""Климат-датчики (Фаза 6): id вида ``sensor:{N}``, properties по метрикам."""
 
 CAP_ON_OFF = "devices.capabilities.on_off"
 CAP_MODE = "devices.capabilities.mode"
@@ -32,6 +35,12 @@ PROP_FLOAT = "devices.properties.float"
 FAN_MODES = ("one", "two", "three", "four", "five", "six")
 HEATER_TEMP_MIN = 10
 HEATER_TEMP_MAX = 30
+
+SENSOR_INSTANCES: dict[str, tuple[str, str]] = {
+    "co2": ("co2_level", "unit.ppm"),
+    "temperature": ("temperature", "unit.temperature.celsius"),
+    "humidity": ("humidity", "unit.percent"),
+}
 
 ERROR_INVALID_ACTION = "INVALID_ACTION"
 ERROR_INVALID_VALUE = "INVALID_VALUE"
@@ -107,6 +116,48 @@ def device_descriptor(device_id: str, name: str, room: str | None) -> dict[str, 
     if room is not None:
         descriptor["room"] = room
     return descriptor
+
+
+def sensor_descriptor(
+    sensor_id: str, name: str, room: str | None, metrics: Sequence[str]
+) -> dict[str, Any]:
+    """Описание климат-датчика для GET /user/devices (properties по метрикам)."""
+    descriptor: dict[str, Any] = {
+        "id": sensor_id,
+        "name": name,
+        "type": SENSOR_TYPE,
+        "capabilities": [],
+        "properties": [
+            {
+                "type": PROP_FLOAT,
+                "retrievable": True,
+                "parameters": {"instance": instance, "unit": unit},
+            }
+            for metric in metrics
+            if (pair := SENSOR_INSTANCES.get(metric)) is not None
+            for instance, unit in (pair,)
+        ],
+    }
+    if room is not None:
+        descriptor["room"] = room
+    return descriptor
+
+
+def sensor_property_states(values: dict[str, Any]) -> list[dict[str, Any]]:
+    """Значения датчика для /query и callback state."""
+    states: list[dict[str, Any]] = []
+    for metric in SENSOR_INSTANCES:
+        value = values.get(metric)
+        if value is None:
+            continue
+        instance, _unit = SENSOR_INSTANCES[metric]
+        states.append(
+            {
+                "type": PROP_FLOAT,
+                "state": {"instance": instance, "value": float(value)},
+            }
+        )
+    return states
 
 
 def capability_states(state: dict[str, Any]) -> list[dict[str, Any]]:
