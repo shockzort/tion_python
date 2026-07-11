@@ -15,8 +15,10 @@ import structlog
 from bleak import BleakClient, BleakScanner
 from bleak.backends.device import BLEDevice
 from bleak.exc import BleakError
-from dbus_fast import BusType, Message, MessageType
+from dbus_fast import BusType, Message, MessageType, Variant
 from dbus_fast.aio import MessageBus
+
+from easy_breezy.ble._bluez_agent import AGENT_CAPABILITY, AGENT_PATH, JustWorksAgent
 
 log = structlog.get_logger("easy_breezy.ble")
 
@@ -172,9 +174,11 @@ class BleakTransport:
 
         S4 в режиме сопряжения принимает LL-соединение, но рвёт его, если
         центральный начинает GATT-discovery раньше SMP, поэтому пейринг идёт
-        отдельным примитивом BlueZ на объекте устройства. После бонда транспорт
-        подключается обычным путём (соединение уже поднято пейрингом) и остаётся
-        готовым к работе.
+        отдельным примитивом BlueZ на объекте устройства. Метод самодостаточен:
+        на время пейринга регистрирует JustWorks-агент и включает ``Pairable``
+        на адаптере (без них bluetoothd отвечает ``AuthenticationFailed``),
+        после — возвращает адаптер в исходное состояние. Успешный пейринг
+        оставляет транспорт подключённым и готовым к работе.
         """
         self._queue = asyncio.Queue()
         device = await self._find_device()
@@ -184,34 +188,151 @@ class BleakTransport:
             raise TransportError(
                 f"сопряжение с {self._address}: поддерживается только BlueZ"
             )
+        adapter_path = path.rsplit("/", 1)[0]
         try:
             bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
         except OSError as exc:
             raise TransportError(f"сопряжение с {self._address}: D-Bus: {exc}") from exc
+        agent = JustWorksAgent()
+        was_pairable = True
         try:
-            async with asyncio.timeout(45.0):
-                reply = await bus.call(
-                    Message(
-                        destination="org.bluez",
-                        path=path,
-                        interface="org.bluez.Device1",
-                        member="Pair",
+            was_pairable = await self._enable_pairable(bus, adapter_path)
+            await self._register_agent(bus, agent)
+            try:
+                async with asyncio.timeout(45.0):
+                    reply = await bus.call(
+                        Message(
+                            destination="org.bluez",
+                            path=path,
+                            interface="org.bluez.Device1",
+                            member="Pair",
+                        )
                     )
+            except (TimeoutError, OSError) as exc:
+                raise TransportError(f"сопряжение с {self._address}: {exc}") from exc
+            if (
+                reply is not None
+                and reply.message_type is MessageType.ERROR
+                and reply.error_name != _BLUEZ_ALREADY_EXISTS
+            ):
+                raise TransportError(
+                    f"сопряжение с {self._address}: {reply.error_name}: {reply.body}"
                 )
-        except (TimeoutError, OSError) as exc:
-            raise TransportError(f"сопряжение с {self._address}: {exc}") from exc
         finally:
+            await self._restore_adapter(bus, adapter_path, agent, was_pairable)
             bus.disconnect()
+        log.debug("paired", address=self._address)
+        await self._attach(device)
+
+    @staticmethod
+    async def _adapter_call(
+        bus: MessageBus,
+        path: str,
+        interface: str,
+        member: str,
+        signature: str = "",
+        body: list[object] | None = None,
+    ) -> Message | None:
+        """Вызов метода BlueZ; ошибки транслируются вызывающему кодом ответа."""
+        return await bus.call(
+            Message(
+                destination="org.bluez",
+                path=path,
+                interface=interface,
+                member=member,
+                signature=signature,
+                body=body or [],
+            )
+        )
+
+    async def _enable_pairable(self, bus: MessageBus, adapter_path: str) -> bool:
+        """Включает ``Pairable`` на адаптере; возвращает прежнее значение."""
+        reply = await self._adapter_call(
+            bus,
+            adapter_path,
+            "org.freedesktop.DBus.Properties",
+            "Get",
+            "ss",
+            ["org.bluez.Adapter1", "Pairable"],
+        )
+        was_pairable = bool(
+            reply is not None
+            and reply.message_type is not MessageType.ERROR
+            and reply.body[0].value
+        )
+        if not was_pairable:
+            await self._adapter_call(
+                bus,
+                adapter_path,
+                "org.freedesktop.DBus.Properties",
+                "Set",
+                "ssv",
+                ["org.bluez.Adapter1", "Pairable", Variant("b", True)],
+            )
+            log.debug("adapter_pairable_enabled", adapter=adapter_path)
+        return was_pairable
+
+    async def _register_agent(self, bus: MessageBus, agent: JustWorksAgent) -> None:
+        """Экспортирует и регистрирует JustWorks-агент (default — по возможности)."""
+        bus.export(AGENT_PATH, agent)
+        reply = await self._adapter_call(
+            bus,
+            "/org/bluez",
+            "org.bluez.AgentManager1",
+            "RegisterAgent",
+            "os",
+            [AGENT_PATH, AGENT_CAPABILITY],
+        )
         if (
             reply is not None
             and reply.message_type is MessageType.ERROR
             and reply.error_name != _BLUEZ_ALREADY_EXISTS
         ):
-            raise TransportError(
-                f"сопряжение с {self._address}: {reply.error_name}: {reply.body}"
+            raise TransportError(f"регистрация BlueZ-агента: {reply.error_name}")
+        default = await self._adapter_call(
+            bus,
+            "/org/bluez",
+            "org.bluez.AgentManager1",
+            "RequestDefaultAgent",
+            "o",
+            [AGENT_PATH],
+        )
+        if default is not None and default.message_type is MessageType.ERROR:
+            # не фатально: для исходящего JustWorks хватает зарегистрированного
+            log.debug("agent_default_refused", error=default.error_name)
+
+    async def _restore_adapter(
+        self,
+        bus: MessageBus,
+        adapter_path: str,
+        agent: JustWorksAgent,
+        was_pairable: bool,
+    ) -> None:
+        """Снимает агент и возвращает ``Pairable`` как было; сбои — в DEBUG-лог."""
+        try:
+            reply = await self._adapter_call(
+                bus,
+                "/org/bluez",
+                "org.bluez.AgentManager1",
+                "UnregisterAgent",
+                "o",
+                [AGENT_PATH],
             )
-        log.debug("paired", address=self._address)
-        await self._attach(device)
+            if reply is not None and reply.message_type is MessageType.ERROR:
+                log.debug("agent_unregister_failed", error=reply.error_name)
+            bus.unexport(AGENT_PATH, agent)
+            if not was_pairable:
+                await self._adapter_call(
+                    bus,
+                    adapter_path,
+                    "org.freedesktop.DBus.Properties",
+                    "Set",
+                    "ssv",
+                    ["org.bluez.Adapter1", "Pairable", Variant("b", False)],
+                )
+                log.debug("adapter_pairable_restored", adapter=adapter_path)
+        except OSError as exc:
+            log.debug("adapter_restore_failed", error=str(exc))
 
     async def unpair(self) -> None:
         """Удаление бонда; работает и без активного соединения (BlueZ)."""
