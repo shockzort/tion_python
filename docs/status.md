@@ -22,8 +22,8 @@
 |---|---|
 | 0. Каркас, спецификация, требования, CI | ✅ master |
 | 1. BLE-библиотека (кодек, транспорт, драйвер, супервизор) + CLI | ✅ master; живой смоук пройден |
-| 2. Storage + core (event/command bus) + REST/WS + auth | ⏳ следующая |
-| 3. UI MVP (дашборд, сопряжение) | — |
+| 2. Storage + core (event/command bus) + REST/WS + auth | ✅ master; смоук на фейках и железе через REST |
+| 3. UI MVP (дашборд, сопряжение) | ⏳ следующая |
 | 4. Яндекс + внешний доступ (frp/nginx/TLS) = **MVP** | — |
 | 5–8. Автоматизация, датчики, интенты, полировка | — |
 
@@ -35,26 +35,28 @@ power-cycle. На боевом RPi сопряжение нужно будет п
 
 ## План дальнейшей разработки
 
-### Фаза 2 — storage + core + API (ветка `feature/phase-2-core-api`, железо не нужно)
+### Фаза 3 — UI MVP (ветка `feature/phase-3-ui`, разработка на `EB_FAKE_DEVICES=3`)
 
-Объём (план §5, §8):
+Объём (план §11, §14):
 
-- `storage/` — SQLAlchemy 2.0 async + aiosqlite + Alembic; таблицы devices/groups/
-  commands/scenarios/schedules/triggers/sensors/telemetry/users/sessions/oauth/settings.
-- `core/events.py` — event bus (in-process async pub/sub).
-- `core/registry.py`, `core/state.py` — реестр устройств + кэш последнего состояния.
-- `core/bus.py` — command bus: идемпотентность по ключу, per-device очереди,
-  приоритеты, журнал, дедуп ретраев; сверка «применилось ли» после записи (ADR-0004).
-- `core/holds.py` — manual-override окна (ADR-0005).
-- `core/telemetry.py` — рекордер + downsampler.
-- `api/rest/*` (devices, groups, commands, system) + `api/ws.py` + `api/deps.py`.
-- Авторизация: локальный админ (argon2id), сессии-cookie, api-токены.
-- Dev-режим `EB_FAKE_DEVICES=3` на `FakeS4Device` — сервис и UI без железа.
-- Тесты: дедуп/сериализация/таймауты/hold, httpx ASGI «POST command → WS event»,
-  alembic upgrade.
+- Бэкенд-хвост для мастера сопряжения: REST скана (15 с, фильтр `Tion Breezer*`)
+  и пейринга (`transport.pair()` уже самодостаточен, ADR-0003) + прогресс по WS.
+- Логин/setup-экран (cookie уже в API), PWA-shell (vite-plugin-pwa, русский).
+- Дашборд: карточки устройств — статус, слайдер скорости 1–6, нагрев + целевая
+  температура, приток/рециркуляция, звук/подсветка, фильтр в днях, бейджи
+  «нет связи»/«ручное управление до HH:MM» (+ кнопка снятия hold).
+- Устройства: мастер сопряжения, переименование, комнаты, группы, удаление.
+- WS-мост: `событие → setQueryData` (TanStack Query), optimistic updates
+  с откатом по `command.finished(error)`.
+- vitest (карточка, мастер) + tsc/oxlint в CI; ручной чек-лист на телефоне:
+  установка PWA, управление тремя бризерами из LAN.
 
-### Фаза 3 — UI MVP
-Дашборд состояния, управление (скорость/нагрев/режим), мастер сопряжения.
+Сложившийся API (Фаза 2): `/api/auth/*` (setup по токену из лога, login-cookie,
+api-токены), `/api/devices` CRUD + `POST …/command` (Idempotency-Key; 200 done
+или 202 pending + финал по WS) + `DELETE …/hold`, `/api/rooms`, `/api/groups`
+(+ веерная команда), `/api/commands` (журнал), `/api/system/health|stats`,
+WS `/api/ws` (`{"topic","data"}`: device.state_changed / device.connection_changed
+/ device.list_changed / command.finished).
 
 ### Фаза 4 — Яндекс + внешний доступ = MVP
 OAuth-заглушка + устройства/капабилити Умного дома, frp + nginx + TLS на VPS.
@@ -67,11 +69,15 @@ OAuth-заглушка + устройства/капабилити Умного 
 
 ```bash
 cd server && uv sync          # зависимости
-make test && make lint        # 46 тестов, ruff/black/isort/mypy strict, oxlint/tsc
-uv run breezy scan            # бризеры в эфире (занятый другим централом не виден)
-uv run breezy state EC:82:9F:A4:90:14   # чтение по протоколу (бонд уже есть)
-make dev                      # сервер :8000, /api/system/health
+make test && make lint        # 95 тестов, ruff/black/isort/mypy strict, oxlint/tsc
+EB_FAKE_DEVICES=3 make dev    # dev-режим на эмуляторах: :8000, setup-токен в логе
+uv run breezy state EC:82:9F:A4:90:14   # CLI по протоколу (бонд уже есть)
 ```
 
-Локальные ветки `feature/rewrite-phase-0`, `feature/phase-1-ble` влиты в master —
-можно удалить; `feature-search-and-register-devices` — легаси, тоже можно удалить.
+Первый вход: `POST /api/auth/setup {setup_token, username, password}` — токен
+печатается в лог при старте без пользователей; дальше login-cookie или
+api-токен (`POST /api/tokens`) с `Authorization: Bearer`.
+
+Локальные ветки `feature/rewrite-phase-0`, `feature/phase-1-ble`,
+`feature/phase-2-core-api` влиты в master — можно удалить;
+`feature-search-and-register-devices` — легаси, тоже можно удалить.
