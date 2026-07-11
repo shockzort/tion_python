@@ -11,7 +11,7 @@ from fastapi import FastAPI
 
 from easy_breezy import __version__
 from easy_breezy.api import ws
-from easy_breezy.api.rest import auth, commands, devices, groups, system
+from easy_breezy.api.rest import auth, commands, devices, groups, pairing, system
 from easy_breezy.config import Settings
 from easy_breezy.container import build_container
 from easy_breezy.logging import setup_logging
@@ -52,5 +52,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(devices.router)
     app.include_router(groups.router)
     app.include_router(commands.router)
+    app.include_router(pairing.router)
     app.include_router(ws.router)
     return app

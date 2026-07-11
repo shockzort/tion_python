@@ -18,6 +18,17 @@ log = structlog.get_logger("easy_breezy.ble")
 _NAME_PREFIXES = ("breezer", "tion breezer", "tion_", "tion ")
 _MODEL_HINTS = {"4s": "s4", "s4": "s4", "lite": "lite", "3s": "s3", "s3": "s3"}
 
+_TION_MFR_COMPANY = 0xFFFF
+_MFR_PAYLOAD_LEN = 11  # <mac:6> 03 80 00 00 <pair:1> — спека §1.1
+
+
+def pairing_mode_from_adv(manufacturer_data: dict[int, bytes]) -> bool | None:
+    """Флаг режима сопряжения из рекламы (спека §1.1); None — неизвестно."""
+    payload = manufacturer_data.get(_TION_MFR_COMPANY)
+    if payload is None or len(payload) < _MFR_PAYLOAD_LEN:
+        return None
+    return payload[_MFR_PAYLOAD_LEN - 1] == 1
+
 
 @dataclass(frozen=True, slots=True)
 class DiscoveredBreezer:
@@ -25,6 +36,8 @@ class DiscoveredBreezer:
     address: str
     rssi: int
     model_hint: str | None
+    pairing_mode: bool | None = None
+    """True — бризер в режиме сопряжения (кнопка ~5 с / выкл-вкл)."""
 
 
 def _match(name: str) -> bool:
@@ -62,6 +75,7 @@ async def scan(
             address=device.address,
             rssi=adv.rssi,
             model_hint=_model_hint(name),
+            pairing_mode=pairing_mode_from_adv(adv.manufacturer_data),
         )
         for device, adv in results.values()
         if (name := device.name or adv.local_name or "") and _match(name)

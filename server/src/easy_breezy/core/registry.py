@@ -12,6 +12,7 @@ import time
 from collections.abc import Callable
 
 import structlog
+from sqlalchemy.exc import IntegrityError
 
 from easy_breezy.ble.protocol.s4 import S4State
 from easy_breezy.ble.supervisor import ConnectionState, DeviceSupervisor
@@ -29,6 +30,10 @@ from easy_breezy.storage.models import Device
 from easy_breezy.storage.repos import DeviceRepo
 
 log = structlog.get_logger(__name__)
+
+
+class DeviceExistsError(Exception):
+    """Устройство с таким MAC уже зарегистрировано и активно."""
 
 
 class DeviceRegistry:
@@ -99,16 +104,30 @@ class DeviceRegistry:
     async def add_device(self, *, mac: str, name: str, paired: bool = True) -> Device:
         """Регистрирует устройство и запускает супервизор.
 
-        Фаза 2: устройство считается уже сопряжённым на хосте
-        (``breezy pair``); мастер сопряжения из UI — Фаза 3.
+        MAC уникален навсегда (журнал ссылается на uuid), поэтому повторное
+        добавление ранее удалённого устройства реанимирует его запись.
+        Устройство считается уже сопряжённым на хосте (``breezy pair`` или
+        мастер сопряжения — ``PairingService``).
         """
-        async with self._db.session() as session:
-            device = await DeviceRepo(session).create(
-                mac=mac,
-                name=name,
-                paired=paired,
-                created_at=int(self._now()),
-            )
+        try:
+            async with self._db.session() as session:
+                repo = DeviceRepo(session)
+                device = await repo.get_by_mac(mac)
+                if device is not None and device.deleted_at is None:
+                    raise DeviceExistsError(mac)
+                if device is not None:  # реанимация мягко удалённой записи
+                    device.deleted_at = None
+                    device.name = name
+                    device.paired = paired
+                else:
+                    device = await repo.create(
+                        mac=mac,
+                        name=name,
+                        paired=paired,
+                        created_at=int(self._now()),
+                    )
+        except IntegrityError as exc:  # гонка одновременных добавлений
+            raise DeviceExistsError(mac) from exc
         if paired:
             self._start_supervisor(device.uuid, device.mac)
         self._events.publish(

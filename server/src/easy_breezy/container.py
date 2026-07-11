@@ -13,13 +13,18 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from easy_breezy.auth import AuthService
-from easy_breezy.ble.fake import FakeS4Device, FakeTransport
+from easy_breezy.ble.fake import FakeS4Device, FakeTransport, fake_mac
 from easy_breezy.ble.protocol.s4 import GATT_NOTIFY, GATT_WRITE
 from easy_breezy.ble.transport import BleakTransport, BleTransport
 from easy_breezy.config import Settings
 from easy_breezy.core.bus import CommandBus
 from easy_breezy.core.events import EventBus
 from easy_breezy.core.holds import HoldManager
+from easy_breezy.core.pairing import (
+    BlePairingService,
+    FakePairingService,
+    PairingService,
+)
 from easy_breezy.core.registry import DeviceRegistry
 from easy_breezy.core.state import StateCache
 from easy_breezy.core.telemetry import TelemetryService
@@ -38,6 +43,7 @@ class AppContainer:
     bus: CommandBus
     telemetry: TelemetryService
     auth: AuthService
+    pairing: PairingService
     ws_connections: set[Any] = field(default_factory=set)
     """Живые WebSocket-клиенты (для /api/system/stats)."""
 
@@ -64,16 +70,19 @@ def build_container(settings: Settings) -> AppContainer:
     events = EventBus()
     cache = StateCache()
     holds = HoldManager(duration_seconds=settings.manual_hold_minutes * 60)
-    registry = DeviceRegistry(
-        db,
-        events,
-        cache,
-        make_transport_factory(settings),
-        scan_gate=asyncio.Lock(),
-    )
+    scan_gate = asyncio.Lock()
+    transport_factory = make_transport_factory(settings)
+    registry = DeviceRegistry(db, events, cache, transport_factory, scan_gate=scan_gate)
     bus = CommandBus(db, registry, events, holds)
     telemetry = TelemetryService(db, events)
     auth = AuthService(db, session_ttl_seconds=settings.session_ttl_days * 86400)
+    pairing: PairingService
+    if settings.fake_devices > 0:
+        pairing = FakePairingService(db, registry, events, seeded=settings.fake_devices)
+    else:
+        pairing = BlePairingService(
+            db, registry, events, transport_factory, scan_gate=scan_gate
+        )
     return AppContainer(
         settings=settings,
         db=db,
@@ -84,6 +93,7 @@ def build_container(settings: Settings) -> AppContainer:
         bus=bus,
         telemetry=telemetry,
         auth=auth,
+        pairing=pairing,
     )
 
 
@@ -105,10 +115,6 @@ def make_transport_factory(settings: Settings) -> Callable[[str], BleTransport]:
         return BleakTransport(mac, notify_uuid=GATT_NOTIFY, write_uuid=GATT_WRITE)
 
     return bleak_factory
-
-
-def fake_mac(index: int) -> str:
-    return f"FA:KE:00:00:00:{index:02X}"
 
 
 async def seed_fake_devices(db: Database, count: int) -> None:

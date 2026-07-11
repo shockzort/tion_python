@@ -20,6 +20,7 @@ from easy_breezy.api.schemas import (
 from easy_breezy.container import AppContainer
 from easy_breezy.core.bus import CommandError, CommandTicket
 from easy_breezy.core.model import state_to_dict
+from easy_breezy.core.registry import DeviceExistsError
 from easy_breezy.storage.models import CommandSource, Device
 from easy_breezy.storage.repos import DeviceRepo, RoomRepo
 
@@ -72,10 +73,10 @@ async def list_devices(container: ContainerDep) -> list[DeviceView]:
 
 @router.post("/devices", status_code=201)
 async def add_device(body: DeviceCreate, container: ContainerDep) -> DeviceView:
-    """Регистрирует уже сопряжённый бризер (мастер сопряжения — Фаза 3)."""
+    """Регистрирует уже сопряжённый бризер; сопряжение с нуля — /api/pairing."""
     try:
         device = await container.registry.add_device(mac=body.mac, name=body.name)
-    except IntegrityError as exc:
+    except DeviceExistsError as exc:
         raise HTTPException(
             status_code=409, detail="устройство с таким MAC уже есть"
         ) from exc

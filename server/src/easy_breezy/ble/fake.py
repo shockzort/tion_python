@@ -22,6 +22,12 @@ from easy_breezy.ble.protocol.s4 import (
 )
 from easy_breezy.ble.transport import TransportError
 
+
+def fake_mac(index: int) -> str:
+    """MAC эмулятора №index (нарочно не-hex — с железом не спутать)."""
+    return f"FA:KE:00:00:00:{index:02X}"
+
+
 DEFAULT_STATE = S4State(
     power=True,
     sound=True,

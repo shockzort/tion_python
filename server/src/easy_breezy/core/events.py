@@ -20,6 +20,7 @@ TOPIC_STATE_CHANGED = "device.state_changed"
 TOPIC_CONNECTION_CHANGED = "device.connection_changed"
 TOPIC_DEVICE_LIST_CHANGED = "device.list_changed"
 TOPIC_COMMAND_FINISHED = "command.finished"
+TOPIC_PAIRING_PROGRESS = "pairing.progress"
 TOPIC_SENSOR_UPDATED = "sensor.updated"
 
 

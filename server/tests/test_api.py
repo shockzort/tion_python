@@ -253,3 +253,52 @@ def test_device_crud_rooms(client_app: ClientAndApp) -> None:
 
     journal = client.get("/api/commands", params={"limit": 10})
     assert journal.status_code == 200
+
+
+def test_pairing_wizard_flow(client_app: ClientAndApp) -> None:
+    """Мастер сопряжения на фейках: скан → pair → устройство в реестре."""
+    client, app = client_app
+    bootstrap_admin(client, app)
+    wait_devices_online(client)
+
+    found = client.post("/api/pairing/scan", json={"duration": 3}).json()
+    assert len(found) == 2  # пул несопряжённых фейков за пределами сида
+    assert all(not item["registered"] for item in found)
+    assert all(item["pairing_mode"] for item in found)
+    candidate = found[0]
+
+    with client.websocket_connect(f"/api/ws?token={_api_token(client)}") as ws:
+        paired = client.post(
+            "/api/pairing/pair",
+            json={"mac": candidate["mac"], "name": "Кухня"},
+        )
+        assert paired.status_code == 201, paired.text
+        assert paired.json()["name"] == "Кухня"
+
+        stages = []
+        for _ in range(10):
+            message = ws.receive_json()
+            if message["topic"] == "pairing.progress":
+                stages.append(message["data"]["stage"])
+                if message["data"]["stage"] == "done":
+                    break
+        assert stages == ["pairing", "registering", "done"]
+
+    # повторное сопряжение того же MAC — конфликт
+    again = client.post(
+        "/api/pairing/pair", json={"mac": candidate["mac"], "name": "Дубль"}
+    )
+    assert again.status_code == 409
+
+    # новый бризер виден в списке и выходит в online
+    devices = wait_devices_online(client)
+    assert len(devices) == 4
+    rescan = client.post("/api/pairing/scan", json={"duration": 3}).json()
+    assert any(item["registered"] for item in rescan)
+
+
+def _api_token(client: TestClient) -> str:
+    response = client.post("/api/tokens", json={"name": "ws"})
+    assert response.status_code == 201
+    token: str = response.json()["token"]
+    return token
