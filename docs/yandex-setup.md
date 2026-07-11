@@ -8,6 +8,9 @@
 
 ## Шаг 0. TLS: IP-сертификат, DuckDNS или свой домен (план §6)
 
+**Решение владельца (ADR-0006): путь B — DuckDNS.** A и C оставлены как
+альтернативы на будущее.
+
 Яндексу нужен публичный HTTPS с валидным сертификатом. Три пути:
 
 **Путь A — IP-сертификат Let's Encrypt (без домена).**
@@ -22,12 +25,31 @@ certbot certonly --nginx --preferred-profile shortlived -d <IP-VPS>
 (шаг 3) и попробуйте сохранить Endpoint URL вида `https://203.0.113.7/v1.0`.
 Если консоль принимает URL с IP — путь A рабочий; если требует домен — B или C.
 
-**Путь B — бесплатный поддомен DuckDNS.**
+**Путь B — бесплатный поддомен DuckDNS (выбран).**
 
-1. <https://www.duckdns.org> → вход → создать поддомен `<имя>.duckdns.org`,
-   указать IP VPS.
-2. Обновление IP не нужно (VPS статичен), иначе cron с их curl-строкой.
-3. Обычный certbot: `certbot --nginx -d <имя>.duckdns.org`.
+1. <https://www.duckdns.org> → вход (через GitHub/Google) → в поле
+   «sub domain» создать поддомен `<имя>.duckdns.org` → в его строке вписать
+   IP VPS в «current ip» → update ip. Проверка:
+
+   ```bash
+   dig +short <имя>.duckdns.org   # должен ответить IP VPS
+   ```
+
+2. Обновлятор IP не нужен (VPS статичен); если IP сменится — поправить в
+   личном кабинете или cron с их curl-строкой.
+3. Сертификат (порт 80 открыт, nginx из шага 1 установлен; certbot сам
+   допишет пути в конфиг и перезагрузит nginx):
+
+   ```bash
+   sudo certbot --nginx -d <имя>.duckdns.org
+   ```
+
+4. Продление автоматическое (90 дней, systemd-таймер certbot). Проверка:
+
+   ```bash
+   systemctl list-timers | grep certbot
+   sudo certbot renew --dry-run
+   ```
 
 **Путь C — собственный (платный) домен: самый надёжный.**
 
@@ -61,7 +83,7 @@ certbot certonly --nginx --preferred-profile shortlived -d <IP-VPS>
 С собственным доменом развилка A/B отпадает: консоль Диалогов принимает домен
 без вопросов, сертификаты обычные 90-дневные, ничего короткоживущего.
 
-Дальше `<host>` = IP, поддомен DuckDNS или свой домен — по выбранному пути.
+Дальше `<host>` = `<имя>.duckdns.org` (путь B принят — ADR-0006).
 
 ## Шаг 1. VPS: frps + nginx
 

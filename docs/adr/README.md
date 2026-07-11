@@ -11,3 +11,4 @@
 | [0003](0003-tion-pairing-smp-before-gatt.md) | Сопряжение Tion 4S: SMP до GATT, самодостаточный агент |
 | [0004](0004-set-verified-by-reread.md) | Записи в устройство подтверждаются перечитыванием |
 | [0005](0005-central-coexistence.md) | Сосуществование с другими BLE-центральными (Tion Remote, MagicAir) |
+| [0006](0006-external-access-duckdns.md) | Внешний доступ: поддомен DuckDNS + Let's Encrypt |
