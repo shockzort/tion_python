@@ -40,6 +40,20 @@ class TelemetryRepo:
         )
         await self._session.flush()
 
+    async def hours_pending(self, *, before: int) -> list[int]:
+        """Начала завершённых часов, где есть raw-точки, но нет агрегатов.
+
+        Догон после простоя сервиса: raw живёт 7 дней, так что список ограничен.
+        """
+        raw_ts = await self._session.execute(
+            select(TelemetryRaw.ts).where(TelemetryRaw.ts < before).distinct()
+        )
+        raw_hours = {ts // HOUR * HOUR for ts in raw_ts.scalars()}
+        done_hours = await self._session.execute(
+            select(TelemetryHourly.hour_ts).distinct()
+        )
+        return sorted(raw_hours - set(done_hours.scalars()))
+
     async def downsample_hour(self, hour_start: int) -> int:
         """Агрегирует сырые точки часа в ``telemetry_hourly`` (идемпотентно).
 
