@@ -13,9 +13,14 @@ from typing import Protocol
 
 import structlog
 from bleak import BleakClient, BleakScanner
+from bleak.backends.device import BLEDevice
 from bleak.exc import BleakError
+from dbus_fast import BusType, Message, MessageType
+from dbus_fast.aio import MessageBus
 
 log = structlog.get_logger("easy_breezy.ble")
+
+_BLUEZ_ALREADY_EXISTS = "org.bluez.Error.AlreadyExists"
 
 
 class TransportError(Exception):
@@ -90,6 +95,11 @@ class BleakTransport:
         сначала find_device_by_address, затем connect по BLEDevice.
         """
         self._queue = asyncio.Queue()
+        device = await self._find_device()
+        await self._attach(device)
+
+    async def _find_device(self) -> BLEDevice:
+        """Найти устройство в эфире; занятый другим центральным не рекламируется."""
         try:
             async with asyncio.timeout(15.0):
                 device = await BleakScanner.find_device_by_address(
@@ -100,7 +110,10 @@ class BleakTransport:
         if device is None:
             raise TransportError(f"{self._address} не найден в эфире")
         log.debug("device_found", address=self._address, rssi=None)
+        return device
 
+    async def _attach(self, device: BLEDevice) -> None:
+        """Подключиться к найденному устройству и подписаться на нотификации."""
         self._client = BleakClient(
             device,
             disconnected_callback=self._on_disconnect,
@@ -155,12 +168,50 @@ class BleakTransport:
             yield packet
 
     async def pair(self) -> None:
-        """OS-уровневое сопряжение (S4 не требует прикладного кадра, спека §1.7)."""
+        """Сопряжение: BlueZ ``Device1.Pair()`` строго до GATT-операций (спека §1.7).
+
+        S4 в режиме сопряжения принимает LL-соединение, но рвёт его, если
+        центральный начинает GATT-discovery раньше SMP, поэтому пейринг идёт
+        отдельным примитивом BlueZ на объекте устройства. После бонда транспорт
+        подключается обычным путём (соединение уже поднято пейрингом) и остаётся
+        готовым к работе.
+        """
+        self._queue = asyncio.Queue()
+        device = await self._find_device()
+        details = device.details
+        path = details.get("path") if isinstance(details, dict) else None
+        if not isinstance(path, str):
+            raise TransportError(
+                f"сопряжение с {self._address}: поддерживается только BlueZ"
+            )
         try:
-            async with asyncio.timeout(30.0):
-                await self._require_client().pair()
-        except (BleakError, TimeoutError, OSError) as exc:
+            bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
+        except OSError as exc:
+            raise TransportError(f"сопряжение с {self._address}: D-Bus: {exc}") from exc
+        try:
+            async with asyncio.timeout(45.0):
+                reply = await bus.call(
+                    Message(
+                        destination="org.bluez",
+                        path=path,
+                        interface="org.bluez.Device1",
+                        member="Pair",
+                    )
+                )
+        except (TimeoutError, OSError) as exc:
             raise TransportError(f"сопряжение с {self._address}: {exc}") from exc
+        finally:
+            bus.disconnect()
+        if (
+            reply is not None
+            and reply.message_type is MessageType.ERROR
+            and reply.error_name != _BLUEZ_ALREADY_EXISTS
+        ):
+            raise TransportError(
+                f"сопряжение с {self._address}: {reply.error_name}: {reply.body}"
+            )
+        log.debug("paired", address=self._address)
+        await self._attach(device)
 
     async def unpair(self) -> None:
         """Удаление бонда; работает и без активного соединения (BlueZ)."""

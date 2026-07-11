@@ -109,10 +109,13 @@ class S4Driver:
             return await self._request_state()
 
     async def set_state(self, desired: S4State) -> S4State:
-        """Пишет полный набор параметров, возвращает подтверждённое состояние.
+        """Пишет полный набор параметров, возвращает фактическое состояние.
 
-        Подтверждение — следующий кадр состояния; при тишине — одна попытка
-        явного REQUEST_PARAMS (спека §1.6).
+        После подтверждения (или тишины) всегда выполняется контрольный
+        REQUEST_PARAMS: кадр вслед за SET может потеряться при сборке
+        (флаки BLE), а прошивка вправе скорректировать запрошенные поля
+        (полевой факт: включение рециркуляции меняет fan_speed — спека §1.6).
+        Контрольный запрос дёшев (~150 мс) и возвращает истину устройства.
         """
         async with self._lock:
             waiter = self._new_waiter()
@@ -126,13 +129,12 @@ class S4Driver:
                 )
             )
             try:
-                confirmed = await asyncio.wait_for(waiter, self._response_timeout)
+                await asyncio.wait_for(waiter, self._response_timeout)
             except TimeoutError:
                 log.debug("set_confirm_silent", address=self.address)
-                confirmed = await self._request_state()
             finally:
                 self._state_waiter = None
-            return confirmed
+            return await self._request_state()
 
     async def _request_state(self) -> S4State:
         waiter = self._new_waiter()

@@ -160,28 +160,24 @@ def pair(
                 typer.echo(f"  подключение через {remaining} с")
                 await asyncio.sleep(min(5, remaining))
 
-        typer.echo("Подключаюсь… (бризер должен быть в режиме сопряжения)")
+        typer.echo("Сопрягаюсь… (бризер должен быть в режиме сопряжения)")
         transport: BleakTransport | None = None
         for attempt in range(1, 4):
             candidate = _make_transport(mac)
             try:
-                await candidate.connect()
+                await candidate.pair()  # SMP до GATT — спека §1.7
                 transport = candidate
                 break
             except TransportError as exc:
                 typer.echo(f"  попытка {attempt}/3 не удалась: {exc}")
         if transport is None:
             typer.echo(
-                "Соединение не установлено. Бризер точно вошёл в режим "
-                "сопряжения (мигание/сигнал)?"
+                "Сопряжение не выполнено. Бризер точно вошёл в режим "
+                "сопряжения (кнопка ~5 с)? Если индикация выключена — "
+                "просто подержи и отпусти."
             )
             raise typer.Exit(1)
 
-        try:
-            await transport.pair()
-        except TransportError:
-            await transport.disconnect()
-            raise
         typer.echo("Сопряжение выполнено. Проверяю связь…")
         async with S4Driver(transport) as driver:  # транспорт уже подключён
             _print_state(await driver.get_state())

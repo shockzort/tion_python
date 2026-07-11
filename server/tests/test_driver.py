@@ -55,7 +55,12 @@ async def test_set_state_applies_and_confirms() -> None:
     async with driver:
         confirmed = await driver.set_state(desired)
 
-    assert device.received_frames[-1].opcode == OPCODE_SET_PARAMS
+    # SET, затем контрольный REQUEST_PARAMS (кадр после SET может потеряться,
+    # а прошивка вправе скорректировать поля — спека §1.6)
+    assert [frame.opcode for frame in device.received_frames[-2:]] == [
+        OPCODE_SET_PARAMS,
+        OPCODE_REQUEST_PARAMS,
+    ]
     # управляемые поля подтверждены устройством
     for field in (
         "power",
