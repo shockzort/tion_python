@@ -89,6 +89,13 @@ class DeviceRegistry:
             return ConnectionState.DISCONNECTED
         return supervisor.connection_state
 
+    def connections(self) -> dict[str, ConnectionState]:
+        """Состояния соединений всех супервизоров (для статистики)."""
+        return {
+            uuid: supervisor.connection_state
+            for uuid, supervisor in self._supervisors.items()
+        }
+
     async def add_device(self, *, mac: str, name: str, paired: bool = True) -> Device:
         """Регистрирует устройство и запускает супервизор.
 

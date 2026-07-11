@@ -1,0 +1,255 @@
+"""Интеграция API: полный цикл на dev-режиме EB_FAKE_DEVICES (без железа).
+
+TestClient поднимает настоящий lifespan: миграции, фейковые бризеры,
+супервизоры, командную шину и WS-хаб — как боевой сервис, но в памяти.
+"""
+
+from __future__ import annotations
+
+import time
+from collections.abc import Iterator
+from pathlib import Path
+from typing import Any
+
+import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
+
+from easy_breezy.app import create_app
+from easy_breezy.config import Settings
+from easy_breezy.container import AppContainer
+
+ClientAndApp = tuple[TestClient, FastAPI]
+
+
+@pytest.fixture
+def client_app(tmp_path: Path) -> Iterator[ClientAndApp]:
+    app = create_app(Settings(log_level="WARNING", data_dir=tmp_path, fake_devices=3))
+    with TestClient(app) as client:
+        yield client, app
+
+
+def container_of(app: FastAPI) -> AppContainer:
+    container: AppContainer = app.state.container
+    return container
+
+
+def bootstrap_admin(client: TestClient, app: FastAPI) -> None:
+    """Setup-токен из контейнера → первый админ → cookie в клиенте."""
+    setup_token = container_of(app).auth.setup_token
+    assert setup_token is not None
+    response = client.post(
+        "/api/auth/setup",
+        json={
+            "setup_token": setup_token,
+            "username": "admin",
+            "password": "password123",
+        },
+    )
+    assert response.status_code == 201, response.text
+
+
+def wait_devices_online(client: TestClient) -> list[dict[str, Any]]:
+    for _ in range(200):
+        devices: list[dict[str, Any]] = client.get("/api/devices").json()
+        if devices and all(d["connection"] == "online" for d in devices):
+            return devices
+        time.sleep(0.05)
+    raise AssertionError("фейковые бризеры не вышли в online")
+
+
+def test_requires_auth(client_app: ClientAndApp) -> None:
+    client, _ = client_app
+    assert client.get("/api/devices").status_code == 401
+    assert client.get("/api/system/health").status_code == 200  # health открыт
+
+
+def test_setup_login_me(client_app: ClientAndApp) -> None:
+    client, app = client_app
+    setup_token = container_of(app).auth.setup_token
+    assert setup_token is not None
+
+    bad = client.post(
+        "/api/auth/setup",
+        json={"setup_token": "мимо", "username": "admin", "password": "password123"},
+    )
+    assert bad.status_code == 403
+
+    bootstrap_admin(client, app)
+    me = client.get("/api/auth/me")
+    assert me.status_code == 200
+    assert me.json()["username"] == "admin"
+
+    wrong = client.post(
+        "/api/auth/login", json={"username": "admin", "password": "мимо"}
+    )
+    assert wrong.status_code == 401
+
+    client.post("/api/auth/logout")
+    assert client.get("/api/auth/me").status_code == 401
+
+
+def test_fake_devices_online_and_stats(client_app: ClientAndApp) -> None:
+    client, app = client_app
+    bootstrap_admin(client, app)
+    devices = wait_devices_online(client)
+    assert len(devices) == 3
+    assert {d["mac"] for d in devices} == {
+        "FA:KE:00:00:00:01",
+        "FA:KE:00:00:00:02",
+        "FA:KE:00:00:00:03",
+    }
+    assert all(d["state"] is not None for d in devices)
+
+    stats = client.get("/api/system/stats").json()
+    assert stats["devices_total"] == 3
+    assert stats["devices_online"] == 3
+
+
+def test_command_ws_event_and_dedup(client_app: ClientAndApp) -> None:
+    """Сквозной путь плана §14: «POST command → WS event» на fake."""
+    client, app = client_app
+    bootstrap_admin(client, app)
+    device = wait_devices_online(client)[0]
+
+    token_response = client.post("/api/tokens", json={"name": "тест"})
+    assert token_response.status_code == 201
+    api_token = token_response.json()["token"]
+
+    with client.websocket_connect(f"/api/ws?token={api_token}") as ws:
+        response = client.post(
+            f"/api/devices/{device['uuid']}/command",
+            json={"fan_speed": 5, "heater": True},
+            headers={"Idempotency-Key": "ui:e2e-1"},
+        )
+        assert response.status_code == 200, response.text
+        result = response.json()
+        assert result["status"] == "done"
+        assert result["result_state"]["fan_speed"] == 5
+        assert result["result_state"]["heater"] is True
+
+        seen_topics: set[str] = set()
+        finished: dict[str, Any] | None = None
+        for _ in range(20):
+            message = ws.receive_json()
+            seen_topics.add(message["topic"])
+            if message["topic"] == "command.finished":
+                finished = message["data"]
+                break
+        assert finished is not None, f"только {seen_topics}"
+        assert finished["command_id"] == result["command_id"]
+        assert finished["status"] == "done"
+        assert "device.state_changed" in seen_topics
+
+    # дедуп: тот же Idempotency-Key возвращает тот же итог без исполнения
+    replay = client.post(
+        f"/api/devices/{device['uuid']}/command",
+        json={"fan_speed": 5, "heater": True},
+        headers={"Idempotency-Key": "ui:e2e-1"},
+    )
+    assert replay.status_code == 200
+    assert replay.json()["command_id"] == result["command_id"]
+
+    # ручная команда поставила hold; снятие — кнопка «вернуть автоматику»
+    view = client.get(f"/api/devices/{device['uuid']}").json()
+    assert view["hold_until"] is not None
+    assert client.delete(f"/api/devices/{device['uuid']}/hold").status_code == 204
+    view = client.get(f"/api/devices/{device['uuid']}").json()
+    assert view["hold_until"] is None
+
+
+def test_command_validation_and_404(client_app: ClientAndApp) -> None:
+    client, app = client_app
+    bootstrap_admin(client, app)
+    device = wait_devices_online(client)[0]
+
+    empty = client.post(f"/api/devices/{device['uuid']}/command", json={})
+    assert empty.status_code == 422
+
+    out_of_range = client.post(
+        f"/api/devices/{device['uuid']}/command", json={"fan_speed": 9}
+    )
+    assert out_of_range.status_code == 422
+
+    ghost = client.post(
+        "/api/devices/00000000000000000000000000000000/command",
+        json={"fan_speed": 1},
+    )
+    assert ghost.status_code == 404
+
+
+def test_ws_rejects_unauthenticated(client_app: ClientAndApp) -> None:
+    client, _ = client_app
+    with client.websocket_connect("/api/ws") as ws:
+        with pytest.raises(WebSocketDisconnect) as excinfo:
+            ws.receive_text()
+        assert excinfo.value.code == 4401
+
+
+def test_groups_fanout_command(client_app: ClientAndApp) -> None:
+    client, app = client_app
+    bootstrap_admin(client, app)
+    devices = wait_devices_online(client)
+
+    group = client.post("/api/groups", json={"name": "Все"})
+    assert group.status_code == 201
+    group_id = group.json()["id"]
+
+    members = client.put(
+        f"/api/groups/{group_id}/members",
+        json={"device_uuids": [d["uuid"] for d in devices]},
+    )
+    assert members.status_code == 200
+    assert len(members.json()["device_uuids"]) == 3
+
+    fanout = client.post(f"/api/groups/{group_id}/command", json={"power": False})
+    assert fanout.status_code == 200
+    entries = fanout.json()
+    assert len(entries) == 3
+    for entry in entries:
+        assert entry["rejected"] is None
+        assert entry["result"]["status"] == "done"
+        assert entry["result"]["result_state"]["power"] is False
+
+
+def test_device_crud_rooms(client_app: ClientAndApp) -> None:
+    client, app = client_app
+    bootstrap_admin(client, app)
+    devices = wait_devices_online(client)
+    target = devices[0]
+
+    room = client.post("/api/rooms", json={"name": "Спальня"})
+    assert room.status_code == 201
+    room_id = room.json()["id"]
+
+    patched = client.patch(
+        f"/api/devices/{target['uuid']}",
+        json={"name": "У окна", "room_id": room_id},
+    )
+    assert patched.status_code == 200
+    assert patched.json()["name"] == "У окна"
+    assert patched.json()["room_id"] == room_id
+
+    created = client.post(
+        "/api/devices", json={"mac": "aa:bb:cc:dd:ee:01", "name": "Новый"}
+    )
+    assert created.status_code == 201
+    assert created.json()["mac"] == "AA:BB:CC:DD:EE:01"  # нормализация
+    dup = client.post(
+        "/api/devices", json={"mac": "AA:BB:CC:DD:EE:01", "name": "Дубль"}
+    )
+    assert dup.status_code == 409
+    bad_mac = client.post(
+        "/api/devices", json={"mac": "FA:KE:00:00:00:09", "name": "Не hex"}
+    )
+    assert bad_mac.status_code == 422
+
+    assert client.delete(f"/api/devices/{target['uuid']}").status_code == 204
+    remaining = {d["uuid"] for d in client.get("/api/devices").json()}
+    assert target["uuid"] not in remaining
+    assert created.json()["uuid"] in remaining
+    assert client.delete(f"/api/devices/{target['uuid']}").status_code == 404
+
+    journal = client.get("/api/commands", params={"limit": 10})
+    assert journal.status_code == 200

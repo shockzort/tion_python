@@ -38,6 +38,8 @@ class Settings(BaseSettings):
     """Сколько REST ждёт итог команды синхронно (иначе 202 + WS)."""
     session_ttl_days: int = 30
     """Время жизни сессии-cookie."""
+    session_cookie_secure: bool = False
+    """Secure-флаг cookie; включается за TLS (nginx, Фаза 4)."""
 
     def resolved_database_url(self) -> str:
         """URL БД: явный или файл в каталоге данных."""

@@ -93,6 +93,11 @@ class AuthService:
 
     # --- первичная настройка -------------------------------------------------
 
+    @property
+    def setup_token(self) -> str | None:
+        """Активный setup-токен; есть только пока не создан администратор."""
+        return self._setup_token
+
     async def ensure_setup_token(self) -> str | None:
         """Нет пользователей — генерирует setup-токен и пишет его в лог."""
         async with self._db.session() as session:
@@ -175,17 +180,19 @@ class AuthService:
 
     # --- api-токены -----------------------------------------------------------
 
-    async def create_api_token(self, *, user_id: int, name: str) -> str:
+    async def create_api_token(
+        self, *, user_id: int, name: str
+    ) -> tuple[ApiToken, str]:
         """Создаёт токен для CLI/скриптов; сырое значение видно только сейчас."""
         token = secrets.token_urlsafe(32)
         async with self._db.session() as session:
-            await ApiTokenRepo(session).create(
+            record = await ApiTokenRepo(session).create(
                 name=name,
                 user_id=user_id,
                 token_hash=hash_token(token),
                 created_at=int(self._now()),
             )
-        return token
+        return record, token
 
     async def api_token_user(self, token: str) -> User | None:
         async with self._db.session() as session:

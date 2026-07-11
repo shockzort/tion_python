@@ -92,13 +92,13 @@ async def test_api_tokens(auth: AuthService) -> None:
     await make_admin(auth)
     _, user = await auth.login("admin", "s3cret")
 
-    raw = await auth.create_api_token(user_id=user.id, name="cli")
+    record, raw = await auth.create_api_token(user_id=user.id, name="cli")
     resolved = await auth.api_token_user(raw)
     assert resolved is not None and resolved.id == user.id
 
     tokens = await auth.list_api_tokens()
     assert [t.name for t in tokens] == ["cli"]
-    assert raw not in {t.token_hash for t in tokens}  # в БД только хэш
+    assert record.token_hash != raw  # в БД только хэш
 
     assert await auth.delete_api_token(tokens[0].id)
     assert await auth.api_token_user(raw) is None
