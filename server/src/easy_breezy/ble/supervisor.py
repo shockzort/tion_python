@@ -15,7 +15,7 @@ from enum import StrEnum
 
 import structlog
 
-from easy_breezy.ble.driver import DriverTimeoutError, S4Driver
+from easy_breezy.ble.driver import DriverError, DriverTimeoutError, S4Driver
 from easy_breezy.ble.protocol.framing import ProtocolError
 from easy_breezy.ble.protocol.s4 import S4State
 from easy_breezy.ble.transport import BleTransport, TransportError
@@ -90,12 +90,19 @@ class DeviceSupervisor:
             try:
                 await self._session()
                 backoff = self._backoff_initial  # сессия жила — сброс backoff
-            except (TransportError, ProtocolError, DriverTimeoutError, OSError) as exc:
+            except (TransportError, ProtocolError, DriverError, OSError) as exc:
                 log.warning(
                     "device_session_failed",
                     address=self.address,
                     error=str(exc),
                 )
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                # супервизор не имеет права умирать молча (полевой факт:
+                # DriverError вне списка убивал задачу — устройство навсегда
+                # зависало в connecting); неожиданное — лог и ретрай
+                log.exception("device_session_crashed", address=self.address)
             self._set_connection(ConnectionState.DISCONNECTED)
             delay = min(backoff, self._backoff_max)
             delay += delay * 0.25 * self._jitter()

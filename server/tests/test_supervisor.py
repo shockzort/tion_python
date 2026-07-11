@@ -137,6 +137,31 @@ async def test_poll_degradation_triggers_reconnect() -> None:
     )
 
 
+async def test_survives_driver_error_in_session() -> None:
+    """DriverError в сессии не убивает супервизор (полевой факт стенда MVP).
+
+    Обрыв во время первого чтения даёт DriverError («соединение разорвано»
+    поверх сбоя записи) — раньше он выпадал из except-списка run() и задача
+    умирала молча, устройство навсегда зависало в connecting.
+    """
+    transport = FakeTransport(FakeS4Device())
+    transport.fail_writes = True  # connect проходит, первый REQUEST падает
+    supervisor, sleeper, _ = make_supervisor(transport)
+
+    supervisor.start()
+    try:
+        # несколько честных ретраев с backoff — задача жива и логирует
+        async with asyncio.timeout(2):
+            while transport.connect_count < 3:
+                await asyncio.sleep(0)
+        assert sleeper.delays[:2] == [1.0, 2.0]
+
+        transport.fail_writes = False  # устройство «починилось»
+        await _wait_for_state(supervisor, ConnectionState.ONLINE)
+    finally:
+        await supervisor.stop()
+
+
 async def test_scan_gate_blocks_connection_attempts() -> None:
     gate = asyncio.Lock()
     transport = FakeTransport(FakeS4Device())
