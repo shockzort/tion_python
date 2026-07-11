@@ -25,14 +25,29 @@ from easy_breezy.logging import setup_logging
 log = structlog.get_logger(__name__)
 
 
+_RESERVED_PREFIXES = ("api", "v1.0", "oauth")
+
+
+def _is_reserved(path: str) -> bool:
+    return any(
+        path == prefix or path.startswith(prefix + "/") for prefix in _RESERVED_PREFIXES
+    )
+
+
 class SpaStaticFiles(StaticFiles):
-    """Статика PWA: неизвестные пути отдают index.html (client-side роутер)."""
+    """Статика PWA: неизвестные пути отдают index.html (client-side роутер).
+
+    Зарезервированные префиксы (/api, /v1.0, /oauth) в fallback не попадают:
+    несуществующий API-путь обязан отвечать честным 404, а не HTML со статусом
+    200 — иначе ошибки конфигурации (например, лишний /v1.0 в Endpoint URL
+    навыка) маскируются до самых дальних стадий.
+    """
 
     async def get_response(self, path: str, scope: Scope) -> Response:
         try:
             return await super().get_response(path, scope)
         except StarletteHTTPException as exc:
-            if exc.status_code == 404:
+            if exc.status_code == 404 and not _is_reserved(path):
                 return await super().get_response("index.html", scope)
             raise
 

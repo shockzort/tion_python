@@ -244,6 +244,11 @@ def test_spa_static_with_fallback(tmp_path: Path) -> None:
         # API живёт своей жизнью и не перехватывается статикой
         assert client.get("/api/system/health").status_code == 200
         assert client.get("/api/devices").status_code == 401
+        # зарезервированные префиксы не маскируются под SPA (честный 404)
+        assert client.get("/api/no-such-route").status_code == 404
+        assert client.get("/v1.0/v1.0/user/devices").status_code == 404
+        assert client.request("HEAD", "/v1.0/v1.0").status_code == 404
+        assert client.get("/oauth/nonexistent").status_code == 404
 
 
 def test_pairing_wizard_flow(client_app: ClientAndApp) -> None:
