@@ -37,19 +37,7 @@ certbot certonly --nginx --preferred-profile shortlived -d <IP-VPS>
 
 2. Обновлятор IP не нужен (VPS статичен); если IP сменится — поправить в
    личном кабинете или cron с их curl-строкой.
-3. Сертификат (порт 80 открыт, nginx из шага 1 установлен; certbot сам
-   допишет пути в конфиг и перезагрузит nginx):
-
-   ```bash
-   sudo certbot --nginx -d <имя>.duckdns.org
-   ```
-
-4. Продление автоматическое (90 дней, systemd-таймер certbot). Проверка:
-
-   ```bash
-   systemctl list-timers | grep certbot
-   sudo certbot renew --dry-run
-   ```
+3. Выпуск сертификата и продление — внутри шага 1 (сначала ставится nginx).
 
 **Путь C — собственный (платный) домен: самый надёжный.**
 
@@ -85,24 +73,63 @@ certbot certonly --nginx --preferred-profile shortlived -d <IP-VPS>
 
 Дальше `<host>` = `<имя>.duckdns.org` (путь B принят — ADR-0006).
 
-## Шаг 1. VPS: frps + nginx
+## Шаг 1. VPS: nginx + сертификат + frps
+
+Команды для Ubuntu/Debian (на CentOS/Alma — `dnf install nginx certbot
+python3-certbot-nginx`, остальное так же).
+
+**1.1. Установка nginx и certbot:**
 
 ```bash
-# frp (сервер туннеля)
+sudo apt update
+sudo apt install -y nginx certbot python3-certbot-nginx
+sudo systemctl enable --now nginx
+curl -I http://localhost        # HTTP/1.1 200 — nginx жив
+```
+
+**1.2. Файрвол** — открыть 80, 443 (nginx) и 7000 (frp); у многих VPS это
+панель провайдера, при ufw:
+
+```bash
+sudo ufw allow 80/tcp && sudo ufw allow 443/tcp && sudo ufw allow 7000/tcp
+```
+
+Порт 18000 наружу НЕ открывать — он слушается только на localhost,
+наружу смотрит nginx :443.
+
+**1.3. Сертификат** (поддомен DuckDNS уже указывает на VPS — шаг 0; выпуск
+`certonly`, чтобы certbot не правил наш конфиг — пути пропишем сами):
+
+```bash
+sudo certbot certonly --nginx -d <имя>.duckdns.org
+sudo certbot renew --dry-run    # автопродление (таймер ставится при установке)
+```
+
+**1.4. Наш конфиг** (после сертификата — иначе `nginx -t` упадёт на путях):
+
+```bash
+sudo cp deploy/nginx/easy-breezy.conf.example /etc/nginx/conf.d/easy-breezy.conf
+# в конфиге: server_name → <имя>.duckdns.org, пути сертификата →
+#   /etc/letsencrypt/live/<имя>.duckdns.org/fullchain.pem и privkey.pem
+sudo rm -f /etc/nginx/sites-enabled/default   # дефолтный сайт не нужен
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+**1.5. frps (сервер туннеля):**
+
+```bash
 curl -LO https://github.com/fatedier/frp/releases/latest/download/frp_*_linux_amd64.tar.gz
 tar xzf frp_*.tar.gz && sudo cp frp_*/frps /usr/local/bin/
 sudo mkdir -p /etc/frp && sudo cp deploy/frp/frps.toml.example /etc/frp/frps.toml
 # в frps.toml задать auth.token (openssl rand -hex 16)
 sudo systemctl enable --now frps   # юнит по аналогии с deploy/frp/frpc.service
-
-# nginx
-sudo cp deploy/nginx/easy-breezy.conf.example /etc/nginx/conf.d/easy-breezy.conf
-# подставить server_name <host> и пути сертификатов, затем:
-sudo nginx -t && sudo systemctl reload nginx
 ```
 
-Порт 7000 (frp) открыть в файрволе VPS; 18000 наружу не открывать —
-он слушается только на localhost, наружу смотрит nginx :443.
+Проверка TLS сразу после 1.4 (frpc ещё нет — ждём 502, но по HTTPS):
+
+```bash
+curl -sI https://<имя>.duckdns.org | head -1   # HTTP/2 502 — TLS работает
+```
 
 ## Шаг 2. Pi: frpc
 
