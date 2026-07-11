@@ -24,8 +24,8 @@
 | 1. BLE-библиотека (кодек, транспорт, драйвер, супервизор) + CLI | ✅ master; живой смоук пройден |
 | 2. Storage + core (event/command bus) + REST/WS + auth | ✅ master; смоук на фейках и железе через REST |
 | 3. UI MVP (дашборд, устройства, мастер сопряжения, PWA) | ✅ master; ⏳ ручной чек-лист на телефоне |
-| 4. Яндекс + внешний доступ (frp/nginx/TLS) = **MVP** | ⏳ следующая |
-| 5–8. Автоматизация, датчики, интенты, полировка | — |
+| 4. Яндекс + внешний доступ = **MVP** | ✅ код в master; ⏳ VPS/линковка/голос — `docs/yandex-setup.md` |
+| 5–8. Автоматизация, датчики, интенты, полировка | ⏳ следующая — Фаза 5 |
 
 **Железо:** все три бризера сопряжены с ноутбуком (bonding, разово на хост):
 `EC:82:9F:A4:90:14` ближний · `D0:60:0E:F7:EA:D4` средний · `EB:B5:4E:13:31:B5`
@@ -35,37 +35,38 @@ power-cycle. На боевом RPi сопряжение нужно будет п
 
 ## План дальнейшей разработки
 
-**Хвост Фазы 3 (руки владельца, не блокирует):** на телефоне из LAN — установка
-PWA (иконка, standalone), логин, управление тремя бризерами с дашборда, мастер
-сопряжения на реальном бризере (кнопка ~5 с → скан → бонд), поведение при
-обрыве WS. Запуск: `make build-ui && EB_FAKE_DEVICES=3 make dev` или боевой BLE.
+**Хвосты в руках владельца (не блокируют разработку):**
 
-### Фаза 4 — Яндекс + внешний доступ = MVP (ветка `feature/phase-4-yandex`)
+- Фаза 3: чек-лист PWA на телефоне из LAN (установка, логин, управление тремя
+  бризерами, мастер на реальном бризере). `make build-ui && make dev`.
+- Фаза 4 = **гейт MVP**: VPS (frps+nginx+TLS по пути A/B), frpc на хосте,
+  регистрация приватного навыка, линковка, голосовой чек-лист — пошагово в
+  `docs/yandex-setup.md`. Код и contract-тесты готовы.
 
-Объём (план §6, §12–14):
+### Фаза 5 — автоматизация + телеметрия (ветка `feature/phase-5-automation`)
 
-- Решение TLS за 15 минут в консоли Диалогов: IP-сертификат Let's Encrypt
-  (путь A, предпочтение владельца) vs поддомен DuckDNS (путь B) — план §6.
-- OAuth-провайдер: `GET /oauth/authorize` (standalone HTML-логин, не SPA),
-  `POST /oauth/token` (authorization_code + refresh_token); таблицы уже в схеме.
-- `/v1.0/*`: HEAD ping, devices (маппинг §6: on_off, mode fan_speed one…six,
-  thermostat heat/fan_only, range temperature 10–30, mute/backlight, property
-  температура притока), query (только из state cache), action → command bus
-  (дедуп по X-Request-Id), unlink. Bearer — только наш OAuth.
-- Callbacks: state с дебаунсом 1 с и схлопыванием по устройству, discovery
-  при изменении списка; ретраи с backoff.
-- Деплой: frps/frpc + nginx + TLS на VPS, systemd-юниты на Pi (`deploy/`),
-  `docs/yandex-setup.md`; регистрация приватного навыка, креды в `.env`.
-- Contract-тесты на golden-JSON пар запрос/ответ; голосовой чек-лист §14
-  (включи/скорость три/обогрев/22 градуса; обесточенный → «недоступно»);
-  замер голос→действие < 3 с.
+Объём (план §9, §14):
 
-Сложившийся API: `/api/auth/*` (+ `GET /api/auth/status`), `/api/devices` CRUD
-+ `POST …/command` (Idempotency-Key; 200 done или 202 pending + финал по WS) +
-`DELETE …/hold`, `/api/rooms`, `/api/groups` (+ веерная команда),
-`/api/commands`, `/api/pairing/scan|pair` (+ WS pairing.progress),
-`/api/system/health|stats`, WS `/api/ws`. Сервер раздаёт `ui/dist` (SPA,
-`EB_UI_DIST`); dev UI — vite на :5173 с прокси.
+- `automation/clock.py` — инжектируемое время (time-travel тесты).
+- `automation/scenarios.py` — именованные списки действий (device|group →
+  дельта); исполнение через command bus (source=scenario).
+- `automation/scheduler.py` — один task, `next = min(croniter)` по включённым
+  расписаниям, TZ из settings, пробуждение по CRUD-событию; рестарт: опоздание
+  < 5 мин — выполнить, иначе пропустить с логом.
+- REST/UI: CRUD сценариев и расписаний (конструктор «время + дни»), плитки
+  сценариев и «Все выкл» на дашборде, бейдж hold уже есть.
+- Телеметрия: `GET /api/telemetry` (raw/агрегаты), графики recharts
+  (CO₂ появится в Фазе 6, пока температуры/скорость).
+- Тесты: time-travel (DST, рестарт, missed-fire), e2e на fake
+  «23:00 → все на скорость 1», hold блокирует расписание.
+
+Сложившийся API: `/api/auth/*` (+ status), `/api/devices` CRUD + command +
+hold, `/api/rooms`, `/api/groups`, `/api/commands`, `/api/pairing/*`,
+`/api/system/*`, WS `/api/ws`; `/oauth/authorize|token` (линковка),
+`/v1.0/*` (Bearer нашего OAuth; query из кэша; action → шина с дедупом по
+X-Request-Id, оптимистичный DONE, DEVICE_UNREACHABLE > 120 с офлайна);
+callbacks state/discovery — `yandex_callbacks_started` в логе при
+заполненных EB_YANDEX_SKILL_ID/CALLBACK_TOKEN.
 
 ### Фазы 5–8
 Автоматизация (сценарии/расписания/триггеры), датчики CO₂ (MagicAir cloud →
