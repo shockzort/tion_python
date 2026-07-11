@@ -1,8 +1,5 @@
 # nginx на VPS: TLS-терминация + прокси в frps-туннель (localhost:18000).
-# Вариант TLS решается в Фазе 4 (§6 плана):
-#   A) IP-сертификат Let's Encrypt (профиль shortlived) — если консоль Яндекса примет IP;
-#   B) бесплатный поддомен DuckDNS + certbot (основной путь).
-# После выбора: certbot --nginx -d <домен> (или ACME-профиль shortlived для IP).
+# TLS — поддомен DuckDNS + certbot certonly (ADR-0006, docs/yandex-setup.md).
 
 upstream easy_breezy {
     server 127.0.0.1:18000;
@@ -10,8 +7,9 @@ upstream easy_breezy {
 }
 
 server {
-    listen 443 ssl;
-    http2 on;
+    # http2 параметром в listen — работает и на nginx < 1.25.1 (Debian/Ubuntu
+    # из коробки); на ≥ 1.25.1 это deprecated-синтаксис, но валидный.
+    listen 443 ssl http2;
     server_name <домен-или-IP>;
 
     ssl_certificate     /etc/letsencrypt/live/<домен>/fullchain.pem;
