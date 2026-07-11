@@ -13,6 +13,9 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from easy_breezy.auth import AuthService
+from easy_breezy.automation.clock import SystemClock
+from easy_breezy.automation.scenarios import ScenarioService
+from easy_breezy.automation.scheduler import SchedulerService, resolve_timezone
 from easy_breezy.ble.fake import FakeS4Device, FakeTransport, fake_mac
 from easy_breezy.ble.protocol.s4 import GATT_NOTIFY, GATT_WRITE
 from easy_breezy.ble.transport import BleakTransport, BleTransport
@@ -46,6 +49,8 @@ class AppContainer:
     auth: AuthService
     pairing: PairingService
     yandex_notifier: YandexNotifier
+    scenarios: ScenarioService
+    scheduler: SchedulerService
     ws_connections: set[Any] = field(default_factory=set)
     """Живые WebSocket-клиенты (для /api/system/stats)."""
 
@@ -59,9 +64,11 @@ class AppContainer:
         await self.registry.start()
         await self.telemetry.start()
         await self.yandex_notifier.start()
+        await self.scheduler.start()
         await self.auth.ensure_setup_token()
 
     async def shutdown(self) -> None:
+        await self.scheduler.stop()
         await self.yandex_notifier.stop()
         await self.telemetry.stop()
         await self.bus.stop()
@@ -95,6 +102,14 @@ def build_container(settings: Settings) -> AppContainer:
         skill_id=settings.yandex_skill_id,
         callback_token=settings.yandex_callback_token,
     )
+    scenarios = ScenarioService(db, bus)
+    scheduler = SchedulerService(
+        db,
+        scenarios,
+        events,
+        SystemClock(),
+        tz=resolve_timezone(settings.timezone),
+    )
     return AppContainer(
         settings=settings,
         db=db,
@@ -107,6 +122,8 @@ def build_container(settings: Settings) -> AppContainer:
         auth=auth,
         pairing=pairing,
         yandex_notifier=yandex_notifier,
+        scenarios=scenarios,
+        scheduler=scheduler,
     )
 
 

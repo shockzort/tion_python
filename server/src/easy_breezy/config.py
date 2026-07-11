@@ -44,6 +44,8 @@ class Settings(BaseSettings):
     """Dev-режим: сколько эмуляторов FakeS4 поднять вместо железа (0 — выкл)."""
     manual_hold_minutes: int = 60
     """Окно manual-hold после ручной команды (ADR-0005)."""
+    timezone: str | None = None
+    """IANA-таймзона расписаний (например, Europe/Moscow); None — системная."""
     command_wait_seconds: float = 5.0
     """Сколько REST ждёт итог команды синхронно (иначе 202 + WS)."""
     session_ttl_days: int = 30

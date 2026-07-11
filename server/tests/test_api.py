@@ -14,11 +14,11 @@ from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 from easy_breezy.app import create_app
-from easy_breezy.config import Settings
 from tests.conftest import (
     ClientAndApp,
     bootstrap_admin,
     container_of,
+    test_settings,
     wait_devices_online,
 )
 
@@ -229,7 +229,7 @@ def test_spa_static_with_fallback(tmp_path: Path) -> None:
     (dist / "app.js").write_text("console.log(1)", encoding="utf-8")
 
     app = create_app(
-        Settings(
+        test_settings(
             log_level="WARNING",
             data_dir=tmp_path / "data",
             fake_devices=0,

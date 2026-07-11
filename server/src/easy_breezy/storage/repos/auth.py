@@ -75,6 +75,13 @@ class SessionRepo:
             delete(AuthSession).where(AuthSession.token_hash == token_hash)
         )
 
+    async def delete_for_user(self, user_id: int) -> int:
+        """Сброс всех сессий пользователя (смена пароля)."""
+        result = await self._session.execute(
+            delete(AuthSession).where(AuthSession.user_id == user_id)
+        )
+        return rowcount(result)
+
     async def purge_expired(self, *, now: int) -> int:
         result = await self._session.execute(
             delete(AuthSession).where(AuthSession.expires_at <= now)
