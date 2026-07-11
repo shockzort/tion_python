@@ -69,6 +69,7 @@ def test_setup_login_me(client_app: ClientAndApp) -> None:
     client, app = client_app
     setup_token = container_of(app).auth.setup_token
     assert setup_token is not None
+    assert client.get("/api/auth/status").json() == {"setup_required": True}
 
     bad = client.post(
         "/api/auth/setup",
@@ -77,6 +78,7 @@ def test_setup_login_me(client_app: ClientAndApp) -> None:
     assert bad.status_code == 403
 
     bootstrap_admin(client, app)
+    assert client.get("/api/auth/status").json() == {"setup_required": False}
     me = client.get("/api/auth/me")
     assert me.status_code == 200
     assert me.json()["username"] == "admin"

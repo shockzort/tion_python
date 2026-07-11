@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 from easy_breezy.api.deps import ContainerDep, UserDep
 from easy_breezy.auth import SESSION_COOKIE, AuthError, SetupError, ThrottledError
+from easy_breezy.storage.repos import UserRepo
 
 router = APIRouter(prefix="/api", tags=["auth"])
 
@@ -25,6 +26,10 @@ class LoginBody(BaseModel):
 class UserView(BaseModel):
     id: int
     username: str
+
+
+class AuthStatus(BaseModel):
+    setup_required: bool
 
 
 class TokenCreate(BaseModel):
@@ -56,6 +61,14 @@ def _set_session_cookie(
         samesite="lax",
         secure=container.settings.session_cookie_secure,
     )
+
+
+@router.get("/auth/status")
+async def auth_status(container: ContainerDep) -> AuthStatus:
+    """Публичный флаг для логин-экрана: нужна ли первичная настройка."""
+    async with container.db.session() as session:
+        users = await UserRepo(session).count()
+    return AuthStatus(setup_required=users == 0)
 
 
 @router.post("/auth/setup", status_code=201)

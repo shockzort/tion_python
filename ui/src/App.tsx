@@ -1,77 +1,102 @@
-import { useEffect, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
+import { useEffect } from 'react'
+import {
+  BrowserRouter,
+  Navigate,
+  NavLink,
+  Outlet,
+  Route,
+  Routes,
+} from 'react-router-dom'
 
-type Health = {
-  status: string
-  version: string
-  uptime_seconds: number
-}
+import { useLogout, useMe } from './api/queries'
+import { Spinner } from './components/ui'
+import Dashboard from './pages/Dashboard'
+import Devices from './pages/Devices'
+import Login from './pages/Login'
+import { startEventBridge } from './ws'
 
-type ServerState =
-  | { kind: 'loading' }
-  | { kind: 'online'; health: Health }
-  | { kind: 'offline' }
-
-function useServerHealth(): ServerState {
-  const [state, setState] = useState<ServerState>({ kind: 'loading' })
-
-  useEffect(() => {
-    let cancelled = false
-    const probe = async () => {
-      try {
-        const response = await fetch('/api/system/health')
-        if (!response.ok) throw new Error(String(response.status))
-        const health = (await response.json()) as Health
-        if (!cancelled) setState({ kind: 'online', health })
-      } catch {
-        if (!cancelled) setState({ kind: 'offline' })
-      }
-    }
-    void probe()
-    const timer = setInterval(probe, 10_000)
-    return () => {
-      cancelled = true
-      clearInterval(timer)
-    }
-  }, [])
-
-  return state
-}
-
-function StatusBadge({ state }: { state: ServerState }) {
-  if (state.kind === 'loading') {
-    return <span className="text-slate-400">Проверяем сервер…</span>
-  }
-  if (state.kind === 'offline') {
-    return (
-      <span className="inline-flex items-center gap-2 rounded-full bg-rose-500/10 px-3 py-1 text-sm text-rose-400">
-        <span className="size-2 rounded-full bg-rose-400" />
-        Сервер недоступен
-      </span>
-    )
-  }
+export default function App() {
   return (
-    <span className="inline-flex items-center gap-2 rounded-full bg-emerald-500/10 px-3 py-1 text-sm text-emerald-400">
-      <span className="size-2 rounded-full bg-emerald-400" />
-      Сервер онлайн · v{state.health.version}
-    </span>
+    <BrowserRouter>
+      <Routes>
+        <Route path="/login" element={<Login />} />
+        <Route element={<AuthenticatedLayout />}>
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/devices" element={<Devices />} />
+        </Route>
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </BrowserRouter>
   )
 }
 
-export default function App() {
-  const server = useServerHealth()
+function AuthenticatedLayout() {
+  const me = useMe()
+  const queryClient = useQueryClient()
+  const logout = useLogout()
+
+  // WS-мост живёт, пока пользователь авторизован
+  useEffect(() => {
+    if (me.data === undefined) return
+    return startEventBridge(queryClient)
+  }, [me.data, queryClient])
+
+  if (me.isPending) {
+    return (
+      <div className="flex min-h-dvh items-center justify-center bg-slate-950">
+        <Spinner label="Загрузка…" />
+      </div>
+    )
+  }
+  if (me.isError) {
+    return <Navigate to="/login" replace />
+  }
 
   return (
-    <main className="flex min-h-dvh items-center justify-center bg-slate-950 p-6 text-slate-100">
-      <div className="w-full max-w-md rounded-3xl border border-slate-800 bg-slate-900/60 p-8 text-center shadow-2xl backdrop-blur">
-        <img src="/favicon.svg" alt="" className="mx-auto mb-6 size-16" />
-        <h1 className="text-3xl font-semibold tracking-tight">Easy Breezy</h1>
-        <p className="mt-2 text-slate-400">
-          Локальное управление бризерами Tion — дашборд появится в Фазе 3
-        </p>
-        <div className="mt-6">
-          <StatusBadge state={server} />
+    <div className="flex min-h-dvh flex-col bg-slate-950 text-slate-100">
+      <header className="sticky top-0 z-10 border-b border-slate-800 bg-slate-950/90 backdrop-blur">
+        <div className="mx-auto flex w-full max-w-3xl items-center justify-between px-4 py-3">
+          <div className="flex items-center gap-2">
+            <img src="/favicon.svg" alt="" className="size-6" />
+            <span className="font-semibold tracking-tight">Easy Breezy</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => logout.mutate()}
+            className="text-sm text-slate-400 hover:text-slate-200"
+          >
+            {me.data.username} · выйти
+          </button>
         </div>
-      </div>
-    </main>
+      </header>
+
+      <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-4 pb-24">
+        <Outlet />
+      </main>
+
+      <nav className="fixed inset-x-0 bottom-0 border-t border-slate-800 bg-slate-950/95 backdrop-blur">
+        <div className="mx-auto flex max-w-3xl">
+          <TabLink to="/" label="Дашборд" />
+          <TabLink to="/devices" label="Устройства" />
+        </div>
+      </nav>
+    </div>
+  )
+}
+
+function TabLink({ to, label }: { to: string; label: string }) {
+  return (
+    <NavLink
+      to={to}
+      end={to === '/'}
+      className={({ isActive }) =>
+        `flex-1 py-3 text-center text-sm font-medium transition-colors ${
+          isActive ? 'text-sky-400' : 'text-slate-400 hover:text-slate-200'
+        }`
+      }
+    >
+      {label}
+    </NavLink>
   )
 }
