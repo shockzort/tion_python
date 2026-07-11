@@ -116,6 +116,8 @@ class FakeTransport:
         self.connect_failures = 0
         """Сколько ближайших connect() должны упасть (тесты реконнекта)."""
         self.fail_writes = False
+        self.write_delay = 0.0
+        """Задержка каждой записи, сек — эмуляция медленного устройства."""
         self.paired = False
         self.connect_count = 0
 
@@ -143,6 +145,8 @@ class FakeTransport:
     async def write(self, packet: bytes) -> None:
         if not self._connected:
             raise TransportError("запись без соединения (фейк)")
+        if self.write_delay:
+            await asyncio.sleep(self.write_delay)
         if self.fail_writes:
             raise TransportError("сбой записи (фейк)")
         for response in self.device.handle_packet(packet):

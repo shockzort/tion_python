@@ -67,6 +67,8 @@ class DeviceSupervisor:
         self.connection_state = ConnectionState.DISCONNECTED
         self.last_state: S4State | None = None
         self.address: str | None = None
+        self.driver: S4Driver | None = None
+        """Драйвер живой сессии (None вне сессии) — точка входа командной шины."""
 
     def start(self) -> None:
         if self._task is None or self._task.done():
@@ -116,12 +118,14 @@ class DeviceSupervisor:
                 await driver.start()
         else:
             await driver.start()
+        self.driver = driver
         try:
             initial = await driver.get_state()
             log.info("device_online", address=self.address, state=initial)
             self._set_connection(ConnectionState.ONLINE)
             await self._poll_until_lost(driver, disconnected)
         finally:
+            self.driver = None
             await driver.close()
 
     async def _poll_until_lost(

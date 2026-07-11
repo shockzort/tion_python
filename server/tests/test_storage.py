@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 from sqlalchemy import inspect
 from sqlalchemy.exc import IntegrityError
@@ -18,14 +16,6 @@ from easy_breezy.storage.repos import (
     TelemetryPoint,
     TelemetryRepo,
 )
-
-
-@pytest.fixture
-async def db(tmp_path: Path) -> Database:
-    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'test.db'}")
-    await database.migrate()
-    yield database
-    await database.dispose()
 
 
 async def test_migrate_creates_full_schema(db: Database) -> None:
