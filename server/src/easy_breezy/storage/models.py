@@ -144,6 +144,12 @@ class Schedule(Base):
     actions: Mapped[list[Any] | None] = mapped_column(default=None)
     """XOR со scenario_id: либо сценарий, либо inline-действия."""
     enabled: Mapped[bool] = mapped_column(default=True)
+    cursor_ts: Mapped[int | None] = mapped_column(default=None)
+    """Курсор планировщика: докуда обработана ось времени (unix).
+
+    None — расписание ещё не видано планировщиком (курсор станет «сейчас»,
+    прошлое не догоняется). Факт срабатывания фиксирует журнал команд.
+    """
 
 
 class Trigger(Base):

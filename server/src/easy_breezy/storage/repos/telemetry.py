@@ -95,6 +95,61 @@ class TelemetryRepo:
         await self._session.flush()
         return len(rows)
 
+    async def select_raw(
+        self,
+        *,
+        source_type: str,
+        source_id: str,
+        metric: str,
+        from_ts: int,
+        to_ts: int,
+        limit: int = 20000,
+    ) -> list[tuple[int, float]]:
+        """Сырые точки серии за интервал [from_ts, to_ts], по возрастанию ts."""
+        result = await self._session.execute(
+            select(TelemetryRaw.ts, TelemetryRaw.value)
+            .where(
+                TelemetryRaw.source_type == source_type,
+                TelemetryRaw.source_id == source_id,
+                TelemetryRaw.metric == metric,
+                TelemetryRaw.ts >= from_ts,
+                TelemetryRaw.ts <= to_ts,
+            )
+            .order_by(TelemetryRaw.ts)
+            .limit(limit)
+        )
+        return [(ts, value) for ts, value in result.all()]
+
+    async def select_hourly(
+        self,
+        *,
+        source_type: str,
+        source_id: str,
+        metric: str,
+        from_ts: int,
+        to_ts: int,
+    ) -> list[tuple[int, float, float, float]]:
+        """Часовые агрегаты серии: (hour_ts, min, max, avg), по возрастанию."""
+        result = await self._session.execute(
+            select(
+                TelemetryHourly.hour_ts,
+                TelemetryHourly.value_min,
+                TelemetryHourly.value_max,
+                TelemetryHourly.value_avg,
+            )
+            .where(
+                TelemetryHourly.source_type == source_type,
+                TelemetryHourly.source_id == source_id,
+                TelemetryHourly.metric == metric,
+                TelemetryHourly.hour_ts >= from_ts,
+                TelemetryHourly.hour_ts <= to_ts,
+            )
+            .order_by(TelemetryHourly.hour_ts)
+        )
+        return [
+            (hour, v_min, v_max, v_avg) for hour, v_min, v_max, v_avg in result.all()
+        ]
+
     async def purge(self, *, raw_before: int, hourly_before: int) -> tuple[int, int]:
         """Ретенции плана §5: raw — 7 дней, hourly — 2 года."""
         raw = await self._session.execute(

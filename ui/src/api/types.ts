@@ -59,6 +59,42 @@ export type FoundBreezer = {
   registered: boolean
 }
 
+export type ScenarioAction = {
+  target_type: 'device' | 'group'
+  target_id: string | number
+  delta: CommandBody
+}
+
+export type Scenario = { id: number; name: string; actions: ScenarioAction[] }
+
+export type Schedule = {
+  id: number
+  name: string
+  cron: string
+  scenario_id: number | null
+  actions: ScenarioAction[] | null
+  enabled: boolean
+}
+
+export type GroupCommandResult = {
+  device_uuid: string
+  result: CommandResult | null
+  rejected: string | null
+}
+
+export type RawPoint = { ts: number; value: number }
+
+export type HourlyPoint = { ts: number; min: number; max: number; avg: number }
+
+export type TelemetrySeries = {
+  source_type: string
+  source_id: string
+  metric: string
+  agg: 'raw' | 'hourly'
+  raw: RawPoint[] | null
+  hourly: HourlyPoint[] | null
+}
+
 export type User = { id: number; username: string }
 
 export type AuthStatus = { setup_required: boolean }

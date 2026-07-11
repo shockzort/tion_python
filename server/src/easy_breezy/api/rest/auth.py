@@ -23,6 +23,11 @@ class LoginBody(BaseModel):
     password: str
 
 
+class PasswordBody(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=8, max_length=128)
+
+
 class UserView(BaseModel):
     id: int
     username: str
@@ -115,6 +120,25 @@ async def logout(
 
 @router.get("/auth/me")
 async def me(user: UserDep) -> UserView:
+    return UserView(id=user.id, username=user.username)
+
+
+@router.post("/auth/password")
+async def change_password(
+    body: PasswordBody, response: Response, container: ContainerDep, user: UserDep
+) -> UserView:
+    """Смена пароля: сверка текущего, сброс чужих сессий, свежая cookie."""
+    try:
+        token = await container.auth.change_password(
+            user,
+            current_password=body.current_password,
+            new_password=body.new_password,
+        )
+    except ThrottledError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
+    except AuthError as exc:
+        raise HTTPException(status_code=403, detail="текущий пароль неверен") from exc
+    _set_session_cookie(response, container, token)
     return UserView(id=user.id, username=user.username)
 
 

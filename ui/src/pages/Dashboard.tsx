@@ -7,6 +7,8 @@ import {
   useDevices,
   useReleaseHold,
   useRooms,
+  useRunScenario,
+  useScenarios,
   useSendCommand,
 } from '../api/queries'
 import DeviceCard from '../components/DeviceCard'
@@ -15,6 +17,8 @@ import { Button, Spinner } from '../components/ui'
 export default function Dashboard() {
   const devices = useDevices()
   const rooms = useRooms()
+  const scenarios = useScenarios()
+  const runScenario = useRunScenario()
   const sendCommand = useSendCommand()
   const releaseHold = useReleaseHold()
   const queryClient = useQueryClient()
@@ -63,6 +67,25 @@ export default function Dashboard() {
           {poweringOff ? 'Выключаем…' : 'Все выкл'}
         </Button>
       </div>
+
+      {scenarios.data !== undefined && scenarios.data.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {scenarios.data.map((scenario) => {
+            const running =
+              runScenario.isPending && runScenario.variables === scenario.id
+            return (
+              <Button
+                key={scenario.id}
+                variant="ghost"
+                disabled={runScenario.isPending}
+                onClick={() => runScenario.mutate(scenario.id)}
+              >
+                {running ? 'Запускаем…' : `▶ ${scenario.name}`}
+              </Button>
+            )
+          })}
+        </div>
+      )}
 
       <div className="grid gap-3 sm:grid-cols-2">
         {devices.data.map((device) => (

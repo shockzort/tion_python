@@ -114,11 +114,20 @@ async def core(db: Database) -> AsyncIterator[CoreEnv]:
 ClientAndApp = tuple[TestClient, FastAPI]
 
 
+def test_settings(**overrides: Any) -> Settings:
+    """Settings для тестов: локальный ``server/.env`` игнорируется.
+
+    Иначе стендовые значения (например, EB_SESSION_COOKIE_SECURE=true —
+    Secure-cookie не ходит по http://testserver) ломают герметичность.
+    """
+    return Settings(_env_file=None, **overrides)
+
+
 @pytest.fixture
 def client_app(tmp_path: Path) -> Iterator[ClientAndApp]:
     """Настоящий lifespan на фейках: миграции, супервизоры, шина, WS, Яндекс."""
     app = create_app(
-        Settings(
+        test_settings(
             log_level="WARNING",
             data_dir=tmp_path,
             fake_devices=3,

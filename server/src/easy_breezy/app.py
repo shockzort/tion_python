@@ -15,7 +15,16 @@ from starlette.types import Scope
 
 from easy_breezy import __version__
 from easy_breezy.api import ws
-from easy_breezy.api.rest import auth, commands, devices, groups, pairing, system
+from easy_breezy.api.rest import (
+    auth,
+    automation,
+    commands,
+    devices,
+    groups,
+    pairing,
+    system,
+    telemetry,
+)
 from easy_breezy.config import Settings
 from easy_breezy.container import build_container
 from easy_breezy.integrations.yandex import oauth as yandex_oauth
@@ -86,6 +95,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(groups.router)
     app.include_router(commands.router)
     app.include_router(pairing.router)
+    app.include_router(automation.router)
+    app.include_router(telemetry.router)
     app.include_router(ws.router)
     app.include_router(yandex_oauth.router)
     app.include_router(yandex_router.router)

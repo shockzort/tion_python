@@ -174,6 +174,34 @@ class AuthService:
         async with self._db.session() as session:
             await SessionRepo(session).delete_by_hash(hash_token(token))
 
+    async def change_password(
+        self, user: User, *, current_password: str, new_password: str
+    ) -> str:
+        """Меняет пароль со сверкой текущего; сбрасывает все сессии.
+
+        Возвращает токен свежей сессии — вызывающий ставит новую cookie,
+        остальные устройства разлогинены. API-токены не трогаются.
+        """
+        await self.verify_credentials(user.username, current_password)
+        new_hash = await asyncio.to_thread(self._hasher.hash, new_password)
+        token = secrets.token_urlsafe(32)
+        now = int(self._now())
+        async with self._db.session() as session:
+            record = await UserRepo(session).get(user.id)
+            if record is None:
+                raise AuthError("пользователь не найден")
+            record.password_hash = new_hash
+            repo = SessionRepo(session)
+            await repo.delete_for_user(user.id)
+            await repo.create(
+                user_id=user.id,
+                token_hash=hash_token(token),
+                created_at=now,
+                expires_at=now + self._session_ttl,
+            )
+        log.info("password_changed", username=user.username)
+        return token
+
     async def session_user(self, token: str) -> User | None:
         """Пользователь по session-cookie; продлевает last_used_at."""
         now = int(self._now())

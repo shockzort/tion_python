@@ -22,6 +22,7 @@ TOPIC_DEVICE_LIST_CHANGED = "device.list_changed"
 TOPIC_COMMAND_FINISHED = "command.finished"
 TOPIC_PAIRING_PROGRESS = "pairing.progress"
 TOPIC_SENSOR_UPDATED = "sensor.updated"
+TOPIC_AUTOMATION_CHANGED = "automation.changed"
 
 
 @dataclass(frozen=True, slots=True)

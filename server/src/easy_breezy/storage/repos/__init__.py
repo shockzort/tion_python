@@ -5,6 +5,7 @@
 """
 
 from easy_breezy.storage.repos.auth import ApiTokenRepo, SessionRepo, UserRepo
+from easy_breezy.storage.repos.automation import ScenarioRepo, ScheduleRepo
 from easy_breezy.storage.repos.commands import CommandRepo
 from easy_breezy.storage.repos.devices import DeviceRepo, RoomRepo
 from easy_breezy.storage.repos.groups import GroupRepo
@@ -17,6 +18,8 @@ __all__ = [
     "DeviceRepo",
     "GroupRepo",
     "RoomRepo",
+    "ScenarioRepo",
+    "ScheduleRepo",
     "SessionRepo",
     "SettingsRepo",
     "TelemetryPoint",
