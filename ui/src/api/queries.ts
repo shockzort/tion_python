@@ -419,20 +419,23 @@ export function useTelemetry(params: {
   metric: string
   agg: 'raw' | 'hourly'
   from_ts: number
+  to_ts?: number
   source_type?: 'device' | 'sensor'
+  enabled?: boolean
 }) {
-  const query = {
+  const query: Record<string, string> = {
     source_type: params.source_type ?? 'device',
     source_id: params.source_id,
     metric: params.metric,
     agg: params.agg,
     from_ts: String(params.from_ts),
   }
+  if (params.to_ts !== undefined) query.to_ts = String(params.to_ts)
   return useQuery({
     queryKey: keys.telemetry(query),
     queryFn: () =>
       api<TelemetrySeries>(`/api/telemetry?${new URLSearchParams(query)}`),
-    enabled: params.source_id !== '',
+    enabled: params.source_id !== '' && (params.enabled ?? true),
     refetchInterval: 60_000,
   })
 }
