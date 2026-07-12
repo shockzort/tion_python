@@ -48,6 +48,10 @@ api-токен (`POST /api/tokens`) с `Authorization: Bearer`.
   Tion) и/или `EB_MQTT_URL` в `.env`.
 - Пока сервис держит соединения, MagicAir/Tion Remote к бризерам не
   подключаются (ADR-0005).
+- BLE в контейнере: host-сеть + `/var/run/dbus` + `apparmor=unconfined`
+  (полевой факт 2026-07-12: профиль docker-default на Ubuntu режет
+  D-Bus-вызовы к BlueZ — `AccessDenied ... AppArmor policy prevents`,
+  уже учтено в compose).
 
 ## Hardware-смоук Фазы 1 (реальный Tion S4, машина с BLE-адаптером)
 
