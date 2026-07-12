@@ -300,6 +300,256 @@ async def test_engine_idempotent_same_measurement(core: CoreEnv) -> None:
     assert count == 1  # тот же ключ trigger:{id}:enter:{ts} — команда одна
 
 
+# --- maintain: поддержание CO₂ --------------------------------------------------
+
+
+def maintain_trigger_fields(
+    sensor_id: int, device_uuid: str, **overrides: Any
+) -> dict[str, Any]:
+    fields: dict[str, Any] = {
+        "name": "CO₂ поддержание",
+        "sensor_id": sensor_id,
+        "metric": "co2",
+        "kind": "maintain",
+        "op": ">",
+        "threshold": 1000.0,
+        "hysteresis": 50.0,
+        "cooldown_s": 120,
+        "speed_min": 1,
+        "speed_max": 6,
+        "enabled": True,
+    }
+    fields.update(overrides)
+    fields.setdefault("targets", [{"target_type": "device", "target_id": device_uuid}])
+    return fields
+
+
+async def wait_state_cached(core: CoreEnv, device_uuid: str) -> None:
+    await wait_for_condition(
+        lambda: (snapshot := core.cache.get(device_uuid)) is not None
+        and snapshot.state is not None
+    )
+
+
+async def test_maintain_steps_speed_and_journal(core: CoreEnv) -> None:
+    """CO₂ выше цели — ступень вверх; журнал: source=trigger, priority=1."""
+    engine, _ingest, device, sensor_id = await engine_env(core)
+    await wait_state_cached(core, device.uuid)
+    async with core.db.session() as session:
+        await TriggerRepo(session).create(
+            **maintain_trigger_fields(sensor_id, device.uuid)
+        )
+    # фейк стартует с fan_speed=2; ошибка 100 ≥ 2×50 — шаг +2
+    with core.events.subscribe(TOPIC_COMMAND_FINISHED) as sub:
+        assert await engine.evaluate(sensor_id, {"co2": 1100}, NOON) == 1
+        event = await asyncio.wait_for(sub.get(), 5)
+    assert event.data["status"] == "done"
+    assert event.data["result_state"]["fan_speed"] == 4
+
+    from sqlalchemy import select
+
+    from easy_breezy.storage.models import CommandRecord
+
+    async with core.db.session() as session:
+        record = (await session.execute(select(CommandRecord))).scalars().one()
+        trigger = (await TriggerRepo(session).list_all())[0]
+    assert record.source == "trigger"
+    assert record.priority == 1
+    assert trigger.last_fired_at == int(NOON)
+
+
+async def test_maintain_cooldown_gates_adjustments(core: CoreEnv) -> None:
+    """Вторая корректировка не раньше кулдауна."""
+    engine, _ingest, device, sensor_id = await engine_env(core)
+    await wait_state_cached(core, device.uuid)
+    async with core.db.session() as session:
+        await TriggerRepo(session).create(
+            **maintain_trigger_fields(sensor_id, device.uuid)
+        )
+    with core.events.subscribe(TOPIC_COMMAND_FINISHED) as sub:
+        assert await engine.evaluate(sensor_id, {"co2": 1100}, NOON) == 1
+        await asyncio.wait_for(sub.get(), 5)
+    await wait_for_condition(
+        lambda: (snap := core.cache.get(device.uuid)) is not None
+        and snap.state is not None
+        and snap.state.fan_speed == 4
+    )
+    assert await engine.evaluate(sensor_id, {"co2": 1100}, NOON + 60) == 0
+    with core.events.subscribe(TOPIC_COMMAND_FINISHED) as sub:
+        assert await engine.evaluate(sensor_id, {"co2": 1100}, NOON + 121) == 1
+        event = await asyncio.wait_for(sub.get(), 5)
+    assert event.data["result_state"]["fan_speed"] == 6
+
+
+async def test_maintain_hold_skips_without_burning_cooldown(core: CoreEnv) -> None:
+    """Под manual-hold — ни команды, ни записи в журнал, кулдаун цел."""
+    engine, _ingest, device, sensor_id = await engine_env(core)
+    await wait_state_cached(core, device.uuid)
+    async with core.db.session() as session:
+        await TriggerRepo(session).create(
+            **maintain_trigger_fields(sensor_id, device.uuid)
+        )
+    core.holds.place(device.uuid)
+    assert await engine.evaluate(sensor_id, {"co2": 1500}, NOON) == 0
+    assert await journal_is_empty(core)
+    async with core.db.session() as session:
+        trigger = (await TriggerRepo(session).list_all())[0]
+        assert trigger.last_fired_at is None
+
+    # hold снят — регулирование продолжается сразу, без ожидания кулдауна
+    core.holds.release(device.uuid)
+    with core.events.subscribe(TOPIC_COMMAND_FINISHED) as sub:
+        assert await engine.evaluate(sensor_id, {"co2": 1500}, NOON + 1) == 1
+        event = await asyncio.wait_for(sub.get(), 5)
+    assert event.data["status"] == "done"
+
+
+async def journal_is_empty(core: CoreEnv) -> bool:
+    from sqlalchemy import func, select
+
+    from easy_breezy.storage.models import CommandRecord
+
+    async with core.db.session() as session:
+        count = (
+            await session.execute(select(func.count(CommandRecord.id)))
+        ).scalar_one()
+    return count == 0
+
+
+async def test_maintain_skips_unknown_and_offline_devices(core: CoreEnv) -> None:
+    """Нет снапшота/офлайн — корректировка пропускается молча."""
+    engine, _ingest, device, sensor_id = await engine_env(core)
+    await wait_state_cached(core, device.uuid)
+    async with core.db.session() as session:
+        await TriggerRepo(session).create(
+            **maintain_trigger_fields(
+                sensor_id,
+                device.uuid,
+                targets=[{"target_type": "device", "target_id": "нет-такого"}],
+            )
+        )
+    assert await engine.evaluate(sensor_id, {"co2": 1500}, NOON) == 0
+    assert await journal_is_empty(core)
+
+
+async def test_maintain_window_gates_regulation(core: CoreEnv) -> None:
+    """Вне окна регулятор молчит."""
+    engine, _ingest, device, sensor_id = await engine_env(core)
+    await wait_state_cached(core, device.uuid)
+    async with core.db.session() as session:
+        await TriggerRepo(session).create(
+            **maintain_trigger_fields(
+                sensor_id,
+                device.uuid,
+                window_start="23:00",
+                window_end="09:00",
+            )
+        )
+    assert await engine.evaluate(sensor_id, {"co2": 1500}, NOON) == 0
+    night = datetime(2026, 7, 12, 23, 30, tzinfo=MSK).timestamp()
+    with core.events.subscribe(TOPIC_COMMAND_FINISHED) as sub:
+        assert await engine.evaluate(sensor_id, {"co2": 1500}, night) == 1
+        await asyncio.wait_for(sub.get(), 5)
+
+
+async def test_maintain_group_targets(core: CoreEnv) -> None:
+    """Цель-группа раскрывается в устройства."""
+    engine, _ingest, device, sensor_id = await engine_env(core)
+    await wait_state_cached(core, device.uuid)
+    from easy_breezy.storage.repos import GroupRepo
+
+    async with core.db.session() as session:
+        groups = GroupRepo(session)
+        group = await groups.create("Все бризеры")
+        await groups.set_members(group.id, [device.uuid])
+        await TriggerRepo(session).create(
+            **maintain_trigger_fields(
+                sensor_id,
+                device.uuid,
+                targets=[{"target_type": "group", "target_id": group.id}],
+            )
+        )
+    with core.events.subscribe(TOPIC_COMMAND_FINISHED) as sub:
+        assert await engine.evaluate(sensor_id, {"co2": 1100}, NOON) == 1
+        event = await asyncio.wait_for(sub.get(), 5)
+    assert event.data["result_state"]["fan_speed"] == 4
+
+
+async def test_maintain_idempotent_same_measurement(core: CoreEnv) -> None:
+    """Повторная оценка того же измерения не дублирует команду."""
+    engine, _ingest, device, sensor_id = await engine_env(core)
+    await wait_state_cached(core, device.uuid)
+    async with core.db.session() as session:
+        await TriggerRepo(session).create(
+            **maintain_trigger_fields(sensor_id, device.uuid, cooldown_s=0)
+        )
+    with core.events.subscribe(TOPIC_COMMAND_FINISHED) as sub:
+        assert await engine.evaluate(sensor_id, {"co2": 1100}, NOON) == 1
+        await asyncio.wait_for(sub.get(), 5)
+    # состояние в кэше могло не успеть обновиться — но ключ идемпотентности
+    # trigger:{id}:maintain:{ts}:{uuid} дедупит повтор на шине
+    await engine.evaluate(sensor_id, {"co2": 1100}, NOON)
+
+    from sqlalchemy import func, select
+
+    from easy_breezy.storage.models import CommandRecord
+
+    async with core.db.session() as session:
+        count = (
+            await session.execute(select(func.count(CommandRecord.id)))
+        ).scalar_one()
+    assert count == 1
+
+
+async def test_maintain_converges_to_power_off(core: CoreEnv) -> None:
+    """speed_min=0: при низком CO₂ регулятор доводит бризер до выключения."""
+    engine, _ingest, device, sensor_id = await engine_env(core)
+    await wait_state_cached(core, device.uuid)
+    async with core.db.session() as session:
+        await TriggerRepo(session).create(
+            **maintain_trigger_fields(sensor_id, device.uuid, speed_min=0)
+        )
+    ts = NOON
+    with core.events.subscribe(TOPIC_COMMAND_FINISHED) as sub:
+        for _ in range(4):  # fan 2 → 1 → off (с запасом)
+            snapshot = core.cache.get(device.uuid)
+            assert snapshot is not None and snapshot.state is not None
+            if not snapshot.state.power:
+                break
+            assert await engine.evaluate(sensor_id, {"co2": 900}, ts) == 1
+            ts += 121
+            event = await asyncio.wait_for(sub.get(), 5)
+            assert event.data["status"] == "done"
+            expected = event.data["result_state"]
+
+            def cache_caught_up(want: dict[str, Any] = expected) -> bool:
+                snap = core.cache.get(device.uuid)
+                return (
+                    snap is not None
+                    and snap.state is not None
+                    and snap.state.power == want["power"]
+                    and snap.state.fan_speed == want["fan_speed"]
+                )
+
+            await wait_for_condition(cache_caught_up)
+    final = core.cache.get(device.uuid)
+    assert final is not None and final.state is not None
+    assert final.state.power is False
+    # выключен и CO₂ низкий — больше не трогаем
+    assert await engine.evaluate(sensor_id, {"co2": 900}, ts + 121) == 0
+
+
+async def test_maintain_in_deadband_silent(core: CoreEnv) -> None:
+    engine, _ingest, device, sensor_id = await engine_env(core)
+    await wait_state_cached(core, device.uuid)
+    async with core.db.session() as session:
+        await TriggerRepo(session).create(
+            **maintain_trigger_fields(sensor_id, device.uuid)
+        )
+    assert await engine.evaluate(sensor_id, {"co2": 1000}, NOON) == 0
+    assert await journal_is_empty(core)
+
+
 async def test_sweep_warns_once_for_silent_sensor(core: CoreEnv) -> None:
     engine, ingest, _device, sensor_id = await engine_env(core)
     # датчик никогда не слал данных — молчит

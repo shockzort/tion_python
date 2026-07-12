@@ -123,6 +123,140 @@ def test_trigger_crud_and_validation(client_app: ClientAndApp) -> None:
     assert client.get("/api/triggers").json() == []
 
 
+def make_maintain_body(
+    sensor_id: int, device_uuid: str, **overrides: Any
+) -> dict[str, Any]:
+    body: dict[str, Any] = {
+        "name": "CO₂ поддержание",
+        "sensor_id": sensor_id,
+        "metric": "co2",
+        "kind": "maintain",
+        "threshold": 1000,
+        "speed_min": 1,
+        "speed_max": 3,
+        "targets": [{"target_type": "device", "target_id": device_uuid}],
+    }
+    body.update(overrides)
+    return body
+
+
+def test_maintain_trigger_validation_matrix(client_app: ClientAndApp) -> None:
+    client, app = client_app
+    bootstrap_admin(client, app)
+    devices = wait_devices_online(client)
+    sensor = create_sensor(client)
+    base = make_maintain_body(sensor["id"], devices[0]["uuid"])
+
+    def post(**overrides: Any) -> int:
+        payload = {**base, **overrides}
+        payload = {k: v for k, v in payload.items() if v is not ...}
+        return int(client.post("/api/triggers", json=payload).status_code)
+
+    assert post(targets=...) == 422  # без целей
+    assert post(speed_min=...) == 422  # без диапазона
+    assert post(speed_max=...) == 422
+    assert post(speed_min=4, speed_max=2) == 422  # min > max
+    assert post(metric="temperature") == 422  # только CO₂
+    assert post(enter_scenario_id=1) == 422  # enter/exit не применимы
+    assert post(hysteresis=0) == 422  # явная нулевая зона покоя
+    assert post(speed_min=7) == 422
+    assert post(window_start="23:00") == 422  # окно одной границей
+    # неизвестные цели — 404
+    assert post(targets=[{"target_type": "device", "target_id": "нет"}]) == 404
+    assert post(targets=[{"target_type": "group", "target_id": 99}]) == 404
+    # threshold-триггеру maintain-поля запрещены
+    threshold_body = {
+        "name": "Порог",
+        "sensor_id": sensor["id"],
+        "metric": "co2",
+        "op": ">",
+        "threshold": 1000,
+        "speed_min": 1,
+        "enter_actions": [
+            {
+                "target_type": "device",
+                "target_id": devices[0]["uuid"],
+                "delta": {"fan_speed": 6},
+            }
+        ],
+    }
+    assert client.post("/api/triggers", json=threshold_body).status_code == 422
+    # пороговому нужен op
+    no_op = {k: v for k, v in threshold_body.items() if k not in ("op", "speed_min")}
+    assert client.post("/api/triggers", json=no_op).status_code == 422
+
+
+def test_maintain_trigger_defaults_and_view(client_app: ClientAndApp) -> None:
+    """Дефолты зоны покоя/кулдауна и эхо новых полей во view."""
+    client, app = client_app
+    bootstrap_admin(client, app)
+    devices = wait_devices_online(client)
+    sensor = create_sensor(client)
+
+    created = client.post(
+        "/api/triggers", json=make_maintain_body(sensor["id"], devices[0]["uuid"])
+    )
+    assert created.status_code == 201, created.text
+    trigger = created.json()
+    assert trigger["kind"] == "maintain"
+    assert trigger["hysteresis"] == 50.0
+    assert trigger["cooldown_s"] == 120
+    assert trigger["op"] == ">"
+    assert trigger["speed_min"] == 1
+    assert trigger["speed_max"] == 3
+    assert trigger["targets"] == [
+        {"target_type": "device", "target_id": devices[0]["uuid"]}
+    ]
+    assert trigger["enabled"] is True
+
+    # okno и явные значения сохраняются при PUT
+    updated = client.put(
+        f"/api/triggers/{trigger['id']}",
+        json=make_maintain_body(
+            sensor["id"],
+            devices[0]["uuid"],
+            hysteresis=100,
+            cooldown_s=300,
+            speed_min=0,
+            speed_max=6,
+        ),
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["hysteresis"] == 100.0
+    assert updated.json()["cooldown_s"] == 300
+    assert updated.json()["speed_min"] == 0
+
+
+def test_maintain_conflict_disables_previous(client_app: ClientAndApp) -> None:
+    """Включение второго регулятора на то же устройство снимает первый."""
+    client, app = client_app
+    bootstrap_admin(client, app)
+    devices = wait_devices_online(client)
+    sensor = create_sensor(client)
+
+    first = client.post(
+        "/api/triggers",
+        json=make_maintain_body(sensor["id"], devices[0]["uuid"], name="День"),
+    ).json()
+    second = client.post(
+        "/api/triggers",
+        json=make_maintain_body(sensor["id"], devices[0]["uuid"], name="Ночь"),
+    ).json()
+    listed = {t["id"]: t for t in client.get("/api/triggers").json()}
+    assert listed[first["id"]]["enabled"] is False
+    assert listed[second["id"]]["enabled"] is True
+
+    # PUT с enabled=true возвращает первый и снимает второй
+    revived = client.put(
+        f"/api/triggers/{first['id']}",
+        json=make_maintain_body(sensor["id"], devices[0]["uuid"], name="День"),
+    )
+    assert revived.status_code == 200
+    listed = {t["id"]: t for t in client.get("/api/triggers").json()}
+    assert listed[first["id"]]["enabled"] is True
+    assert listed[second["id"]]["enabled"] is False
+
+
 def test_sensor_delete_cascades_triggers(client_app: ClientAndApp) -> None:
     client, app = client_app
     bootstrap_admin(client, app)

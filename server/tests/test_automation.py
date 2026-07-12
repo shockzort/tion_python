@@ -26,7 +26,13 @@ from easy_breezy.core.events import (
     TOPIC_COMMAND_FINISHED,
 )
 from easy_breezy.storage.models import CommandRecord, CommandSource, Device
-from easy_breezy.storage.repos import GroupRepo, ScenarioRepo, ScheduleRepo
+from easy_breezy.storage.repos import (
+    GroupRepo,
+    ScenarioRepo,
+    ScheduleRepo,
+    SensorRepo,
+    TriggerRepo,
+)
 from tests.conftest import CoreEnv, FakeClock, wait_for_condition
 
 MSK = ZoneInfo("Europe/Moscow")
@@ -202,6 +208,128 @@ async def test_scenario_unknown_device_rejected(
     assert len(submissions) == 1
     assert submissions[0].ticket is None
     assert submissions[0].rejected is not None
+
+
+async def make_maintain_trigger(
+    core: CoreEnv, *, name: str, device_uuid: str, enabled: bool
+) -> int:
+    async with core.db.session() as session:
+        sensor = await SensorRepo(session).get_by_source_key("home/air")
+        if sensor is None:
+            sensor = await SensorRepo(session).create(
+                kind="mqtt", name="CO₂", source_key="home/air"
+            )
+        trigger = await TriggerRepo(session).create(
+            name=name,
+            sensor_id=sensor.id,
+            metric="co2",
+            kind="maintain",
+            op=">",
+            threshold=1000.0,
+            hysteresis=50.0,
+            cooldown_s=120,
+            speed_min=1,
+            speed_max=6,
+            targets=[{"target_type": "device", "target_id": device_uuid}],
+            enabled=enabled,
+            last_fired_at=100,
+        )
+        return trigger.id
+
+
+async def test_scenario_toggles_trigger(
+    core: CoreEnv, automation: AutomationEnv
+) -> None:
+    """Действие trigger включает триггер, сбрасывает защёлку и кулдаун."""
+    (device,) = await add_devices(core, 1)
+    trigger_id = await make_maintain_trigger(
+        core, name="Ночь", device_uuid=device.uuid, enabled=False
+    )
+    scenario_id = await make_scenario(
+        core,
+        "Включить ночь",
+        [
+            {
+                "target_type": "trigger",
+                "target_id": trigger_id,
+                "delta": {"enabled": True},
+            }
+        ],
+    )
+    with core.events.subscribe(TOPIC_AUTOMATION_CHANGED) as sub:
+        submissions = await automation.scenarios.run(
+            scenario_id, source=CommandSource.SCHEDULE, idempotency_prefix="run:t1"
+        )
+        event = await asyncio.wait_for(sub.get(), 5)
+    assert submissions == []  # device-команд нет
+    assert event.data == {"kind": "trigger", "action": "updated", "id": trigger_id}
+    async with core.db.session() as session:
+        trigger = await TriggerRepo(session).get(trigger_id)
+        assert trigger is not None
+        assert trigger.enabled is True
+        assert trigger.is_active is False
+        assert trigger.last_fired_at is None  # реакция на следующее измерение
+
+
+async def test_scenario_enabling_maintain_disables_conflicting(
+    core: CoreEnv, automation: AutomationEnv
+) -> None:
+    """Радиокнопка: включение ночного регулятора снимает дневной."""
+    (device,) = await add_devices(core, 1)
+    day_id = await make_maintain_trigger(
+        core, name="День", device_uuid=device.uuid, enabled=True
+    )
+    night_id = await make_maintain_trigger(
+        core, name="Ночь", device_uuid=device.uuid, enabled=False
+    )
+    scenario_id = await make_scenario(
+        core,
+        "Ночь",
+        [
+            {
+                "target_type": "trigger",
+                "target_id": night_id,
+                "delta": {"enabled": True},
+            }
+        ],
+    )
+    await automation.scenarios.run(
+        scenario_id, source=CommandSource.SCHEDULE, idempotency_prefix="run:t2"
+    )
+    async with core.db.session() as session:
+        repo = TriggerRepo(session)
+        day = await repo.get(day_id)
+        night = await repo.get(night_id)
+        assert day is not None and night is not None
+        assert day.enabled is False
+        assert night.enabled is True
+
+
+async def test_scenario_missing_trigger_warns_and_continues(
+    core: CoreEnv, automation: AutomationEnv
+) -> None:
+    """Отсутствующий триггер не валит сценарий — device-действия исполняются."""
+    (device,) = await add_devices(core, 1)
+    scenario_id = await make_scenario(
+        core,
+        "Смешанный",
+        [
+            {"target_type": "trigger", "target_id": 999, "delta": {"enabled": False}},
+            {
+                "target_type": "device",
+                "target_id": device.uuid,
+                "delta": {"fan_speed": 3},
+            },
+        ],
+    )
+    submissions = await automation.scenarios.run(
+        scenario_id, source=CommandSource.SCHEDULE, idempotency_prefix="run:t3"
+    )
+    assert len(submissions) == 1
+    assert submissions[0].ticket is not None
+    outcome = await asyncio.wait_for(asyncio.shield(submissions[0].ticket.outcome), 5)
+    assert outcome.result_state is not None
+    assert outcome.result_state["fan_speed"] == 3
 
 
 async def test_manual_scenario_run_places_hold(

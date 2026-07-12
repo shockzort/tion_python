@@ -26,6 +26,77 @@ def make_scenario_body(devices: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def test_scenario_trigger_actions(client_app: ClientAndApp) -> None:
+    """Сценарий переключает триггеры: валидация и исполнение через /run."""
+    client, app = client_app
+    bootstrap_admin(client, app)
+    devices = wait_devices_online(client)
+
+    sensor = client.post(
+        "/api/sensors", json={"name": "CO₂", "source_key": "home/air"}
+    ).json()
+    trigger = client.post(
+        "/api/triggers",
+        json={
+            "name": "Ночь",
+            "sensor_id": sensor["id"],
+            "metric": "co2",
+            "kind": "maintain",
+            "threshold": 1000,
+            "speed_min": 1,
+            "speed_max": 2,
+            "targets": [{"target_type": "device", "target_id": devices[0]["uuid"]}],
+        },
+    ).json()
+
+    toggle_off = {
+        "target_type": "trigger",
+        "target_id": trigger["id"],
+        "delta": {"enabled": False},
+    }
+    # несуществующий триггер — 404
+    ghost = client.post(
+        "/api/scenarios",
+        json={"name": "Битый", "actions": [{**toggle_off, "target_id": 999}]},
+    )
+    assert ghost.status_code == 404
+    # command-дельта на триггер — 422
+    bad_delta = client.post(
+        "/api/scenarios",
+        json={
+            "name": "Битый",
+            "actions": [{**toggle_off, "delta": {"fan_speed": 3}}],
+        },
+    )
+    assert bad_delta.status_code == 422
+    # toggle-дельта на устройство — 422
+    bad_target = client.post(
+        "/api/scenarios",
+        json={
+            "name": "Битый",
+            "actions": [
+                {
+                    "target_type": "device",
+                    "target_id": devices[0]["uuid"],
+                    "delta": {"enabled": True},
+                }
+            ],
+        },
+    )
+    assert bad_target.status_code == 422
+
+    scenario = client.post(
+        "/api/scenarios", json={"name": "Выключить ночь", "actions": [toggle_off]}
+    )
+    assert scenario.status_code == 201, scenario.text
+    assert scenario.json()["actions"] == [toggle_off]
+
+    run = client.post(f"/api/scenarios/{scenario.json()['id']}/run")
+    assert run.status_code == 200, run.text
+    listed = {t["id"]: t for t in client.get("/api/triggers").json()}
+    assert listed[trigger["id"]]["enabled"] is False
+
+
 def test_scenario_crud_and_run(client_app: ClientAndApp) -> None:
     client, app = client_app
     bootstrap_admin(client, app)
