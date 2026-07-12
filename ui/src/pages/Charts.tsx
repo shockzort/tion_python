@@ -2,7 +2,8 @@ import { useMemo, useState, type ReactNode } from 'react'
 import {
   closestCenter,
   DndContext,
-  PointerSensor,
+  MouseSensor,
+  TouchSensor,
   useSensor,
   useSensors,
   type DragEndEvent,
@@ -89,8 +90,10 @@ export default function Charts() {
   // черновик: правки локальны до явного «Сохранить» (случайное удаление обратимо)
   const [draft, setDraft] = useState<ChartPanel[] | null>(null)
 
+  // мышь — сразу по сдвигу; тач — долгое нажатие (не конфликтует со скроллом)
   const dndSensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(MouseSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
   )
 
   if (devices.isPending || sensors.isPending || pref.isPending)
@@ -199,8 +202,8 @@ function SortablePanel({
     <button
       type="button"
       aria-label="переставить график"
-      title="Перетащите, чтобы переставить"
-      className="cursor-grab touch-none px-1 text-slate-500 hover:text-slate-300 active:cursor-grabbing"
+      title="Перетащите, чтобы переставить (на телефоне — задержите палец)"
+      className="-m-1 cursor-grab select-none touch-none p-2 text-base text-slate-500 hover:text-slate-300 active:cursor-grabbing"
       {...attributes}
       {...listeners}
     >
