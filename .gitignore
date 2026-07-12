@@ -33,3 +33,15 @@ mobile/keystore.properties
 mobile/app/
 mobile/build/
 mobile/.gradle/
+mobile/*.apk
+mobile/*.aab
+mobile/*.idsig
+mobile/app/build/
+mobile/.gradle/
+mobile/build/
+mobile/gradle/
+mobile/gradlew
+mobile/gradlew.bat
+mobile/local.properties
+mobile/manifest-checksum.txt
+mobile/store_icon.png

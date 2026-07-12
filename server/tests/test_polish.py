@@ -60,9 +60,7 @@ async def test_backup_and_restore_roundtrip(db: Database, tmp_path: Path) -> Non
     assert rows == [(device_uuid, "Бризер")]
 
 
-async def test_backup_retention_keeps_last_seven(
-    db: Database, tmp_path: Path
-) -> None:
+async def test_backup_retention_keeps_last_seven(db: Database, tmp_path: Path) -> None:
     events = EventBus()
     clock = FakeClock(NOON)
     service = BackupService(db, events, tmp_path, clock, tz=MSK)
@@ -82,9 +80,7 @@ async def test_backup_failure_publishes_event(db: Database, tmp_path: Path) -> N
     events = EventBus()
     occupied = tmp_path / "occupied"
     occupied.write_text("не каталог")  # mkdir(backups) внутри файла упадёт
-    service = BackupService(
-        db, events, occupied / "sub", FakeClock(NOON), tz=MSK
-    )
+    service = BackupService(db, events, occupied / "sub", FakeClock(NOON), tz=MSK)
     with events.subscribe(TOPIC_BACKUP_FAILED) as subscription:
         with pytest.raises(BackupError):
             await service.run_backup()

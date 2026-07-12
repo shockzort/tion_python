@@ -1,5 +1,5 @@
 # Easy Breezy — команды разработки и развёртывания
-.PHONY: dev dev-ui test lint fmt build-ui run clean
+.PHONY: dev dev-ui test lint fmt build-ui apk run clean
 
 # Запуск сервера разработки (http://localhost:8000)
 dev:
@@ -28,6 +28,13 @@ fmt:
 # Сборка фронтенда (выполнять на dev-машине/CI, не на Pi)
 build-ui:
 	cd ui && npm run build
+
+# Android APK (TWA поверх PWA); ключи и SDK — mobile/README.md
+apk:
+	cd mobile && \
+		export BUBBLEWRAP_KEYSTORE_PASSWORD=$$(grep KEYSTORE_PASSWORD keystore.properties | cut -d= -f2) && \
+		export BUBBLEWRAP_KEY_PASSWORD=$$(grep KEY_PASSWORD keystore.properties | cut -d= -f2) && \
+		npx @bubblewrap/cli build --skipPwaValidation
 
 # Продоподобный запуск: сервер отдаёт собранный UI (после build-ui)
 run:
