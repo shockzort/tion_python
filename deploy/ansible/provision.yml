@@ -80,14 +80,17 @@
         - easy-breezy-watchdog.service
         - easy-breezy-watchdog.timer
 
-    - name: Автозапуск (сам сервис поднимет первый деплой)
+    - name: Автозапуск сервиса (поднимет первый деплой)
       ansible.builtin.systemd:
         daemon_reload: true
-        name: "{{ item }}"
+        name: easy-breezy.service
         enabled: true
-      loop:
-        - easy-breezy.service
-        - easy-breezy-watchdog.timer
+
+    - name: Watchdog-таймер (enabled + запущен сразу)
+      ansible.builtin.systemd:
+        name: easy-breezy-watchdog.timer
+        enabled: true
+        state: started
 
     - name: Что дальше
       ansible.builtin.debug:
