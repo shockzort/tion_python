@@ -2,6 +2,7 @@
 name = "easy-breezy"
 version = "0.2.3"
 description = "Локальный сервис управления бризерами Tion: BLE, Умный дом Яндекса, PWA, автоматизация"
+license = "PolyForm-Noncommercial-1.0.0"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115",
