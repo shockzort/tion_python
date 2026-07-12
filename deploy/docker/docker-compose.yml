@@ -1,27 +1,36 @@
-# Альтернатива bare systemd. BLE требует host-сети и DBus хоста (BlueZ).
-# Запуск из корня: docker compose -f deploy/docker/docker-compose.yml up -d
+# Прод-раскладка целевого сервера: /opt/easy-breezy (копирует ansible,
+# deploy/ansible/README.md). Пути ./… — относительно каталога compose-файла.
+# Версию образа задаёт EB_IMAGE_VERSION (systemd-юнит читает deploy.env).
+# BLE требует host-сети и DBus хоста (BlueZ). Управление на сервере —
+# только через systemd: systemctl {start|stop|restart} easy-breezy.
 
 services:
   easy-breezy:
-    build:
-      context: ../..
-      dockerfile: deploy/docker/Dockerfile
+    image: easy-breezy:${EB_IMAGE_VERSION:?нет версии — деплой пишет deploy.env}
     network_mode: host          # BLE + LAN-доступ
     restart: unless-stopped
-    env_file: ../../.env
+    env_file: ./.env            # конфигурация приложения (EB_*)
     volumes:
       - /var/run/dbus:/var/run/dbus   # BlueZ
-      - data:/app/server/data
+      - ./data:/app/server/data       # БД, бэкапы, VAPID-ключи
     environment:
       EB_DATA_DIR: /app/server/data
+    healthcheck:                # индикация в docker ps; рестарт — watchdog-таймер
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/api/system/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
 
-  frpc:
+  frpc:                         # туннель до VPS (профиль tunnel, deploy.env)
     image: snowdreamtech/frpc:latest
     profiles: [tunnel]
     restart: unless-stopped
     network_mode: host
     volumes:
-      - ../frp/frpc.toml.example:/etc/frp/frpc.toml:ro  # заменить на боевой
-
-volumes:
-  data:
+      - ./frpc.toml:/etc/frp/frpc.toml:ro
+    logging:
+      driver: json-file
+      options: { max-size: "5m", max-file: "2" }

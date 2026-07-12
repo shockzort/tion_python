@@ -1,0 +1,11 @@
+# Health-чек Easy Breezy (запускает easy-breezy-watchdog.timer).
+# Замена systemd sd_notify-watchdog'а: в контейнере NOTIFY_SOCKET недоступен,
+# а restart-policy докера не реагирует на unhealthy.
+
+[Unit]
+Description=Easy Breezy — health-чек с рестартом при серии провалов
+After=easy-breezy.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/eb-watchdog.sh

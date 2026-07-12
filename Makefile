@@ -1,5 +1,5 @@
 # Easy Breezy — команды разработки и развёртывания
-.PHONY: dev dev-ui test lint fmt build-ui apk run clean
+.PHONY: dev dev-ui test lint fmt build-ui apk run clean release deploy provision
 
 # Запуск сервера разработки (http://localhost:8000)
 dev:
@@ -29,12 +29,38 @@ fmt:
 build-ui:
 	cd ui && npm run build
 
-# Android APK (TWA поверх PWA); ключи и SDK — mobile/README.md
+# Android APK (TWA поверх PWA); ключи и SDK — mobile/README.md.
+# Итог: mobile/easy-breezy-<версия>.apk (версия — appVersion из twa-manifest.json).
 apk:
 	cd mobile && \
 		export BUBBLEWRAP_KEYSTORE_PASSWORD=$$(grep KEYSTORE_PASSWORD keystore.properties | cut -d= -f2) && \
 		export BUBBLEWRAP_KEY_PASSWORD=$$(grep KEY_PASSWORD keystore.properties | cut -d= -f2) && \
-		npx @bubblewrap/cli build --skipPwaValidation
+		npx @bubblewrap/cli build --skipPwaValidation && \
+		VERSION=$$(python3 -c "import json; print(json.load(open('twa-manifest.json'))['appVersion'])") && \
+		mv app-release-signed.apk "easy-breezy-$$VERSION.apk" && \
+		rm -f app-release-unsigned-aligned.apk app-release-signed.apk.idsig app-release-bundle.aab && \
+		echo "APK: mobile/easy-breezy-$$VERSION.apk"
+
+# Релиз: версия в pyproject/__init__ + uv.lock, коммит и тег vX.Y.Z
+release:
+	@test -n "$(VERSION)" || { echo "Использование: make release VERSION=x.y.z"; exit 1; }
+	@test -z "$$(git status --porcelain)" || { echo "Рабочее дерево не чистое — сначала закоммитить"; exit 1; }
+	sed -i 's/^version = ".*"/version = "$(VERSION)"/' server/pyproject.toml
+	sed -i 's/^__version__ = ".*"/__version__ = "$(VERSION)"/' server/src/easy_breezy/__init__.py
+	cd server && uv lock
+	git add server/pyproject.toml server/src/easy_breezy/__init__.py server/uv.lock
+	git commit -m "release: v$(VERSION)" && git tag "v$(VERSION)"
+
+# Выкат на целевой сервер (см. deploy/ansible/README.md): сборка UI и
+# arm64-образа, доставка по ssh, health-гейт, автооткат при провале
+deploy:
+	@test -n "$(VERSION)" || { echo "Использование: make deploy VERSION=x.y.z"; exit 1; }
+	cd ui && npm run build
+	ansible-playbook -i deploy/ansible/inventory.yml deploy/ansible/deploy.yml -e version=$(VERSION)
+
+# Разовая подготовка целевого сервера (docker, юниты, заготовки конфигов)
+provision:
+	ansible-playbook -i deploy/ansible/inventory.yml deploy/ansible/provision.yml
 
 # Продоподобный запуск: сервер отдаёт собранный UI (после build-ui)
 run:

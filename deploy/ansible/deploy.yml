@@ -1,0 +1,131 @@
+# Выкат версии: образ под архитектуру цели собирается на dev-машине (buildx),
+# едет на сервер по ssh (docker save|load — без registry), версия
+# переключается в deploy.env, health-гейт; при провале — автооткат.
+#   make deploy VERSION=x.y.z   (из корня; ui/dist собирает make)
+---
+- name: Выкат на целевой сервер
+  hosts: all
+  become: true
+  vars:
+    eb_version: "{{ version | mandatory }}"
+    eb_root: /opt/easy-breezy
+    dist_dir: "{{ playbook_dir }}/../dist"
+    image_tar: "easy-breezy-{{ eb_version }}.tar"
+    # Архитектура цели → платформа образа (Pi 4 = aarch64, NUC = x86_64)
+    eb_platform: >-
+      {{ {'aarch64': 'linux/arm64', 'armv7l': 'linux/arm/v7',
+          'x86_64': 'linux/amd64'}[ansible_architecture] }}
+  tasks:
+    - name: Проверка ui/dist (собирает make build-ui)
+      ansible.builtin.stat:
+        path: "{{ playbook_dir }}/../../ui/dist/index.html"
+      delegate_to: localhost
+      become: false
+      register: ui_dist
+      failed_when: not ui_dist.stat.exists
+
+    - name: Каталог артефактов
+      ansible.builtin.file:
+        path: "{{ dist_dir }}"
+        state: directory
+      delegate_to: localhost
+      become: false
+
+    - name: Проверка builder'а (драйвер docker не экспортирует кросс-платформенный tar)
+      ansible.builtin.command: docker buildx inspect easy-breezy-builder
+      delegate_to: localhost
+      become: false
+      register: builder_check
+      changed_when: false
+      failed_when: false
+
+    - name: Builder для кросс-сборки (docker-container)
+      ansible.builtin.command: >-
+        docker buildx create --name easy-breezy-builder --driver docker-container
+      delegate_to: localhost
+      become: false
+      when: builder_check.rc != 0
+
+    - name: Сборка образа {{ eb_platform }} в tar (buildx)
+      ansible.builtin.command: >-
+        docker buildx build --builder easy-breezy-builder
+        --platform {{ eb_platform }}
+        -f deploy/docker/Dockerfile
+        -t easy-breezy:{{ eb_version }}
+        --output type=docker,dest={{ dist_dir }}/{{ image_tar }}
+        .
+      delegate_to: localhost
+      become: false
+      args:
+        chdir: "{{ playbook_dir }}/../.."
+
+    - name: Текущая версия (для отката)
+      ansible.builtin.slurp:
+        src: "{{ eb_root }}/deploy.env"
+      register: deploy_env_before
+
+    - name: Разбор предыдущей версии
+      ansible.builtin.set_fact:
+        eb_prev_version: >-
+          {{ (deploy_env_before.content | b64decode
+              | regex_search('EB_IMAGE_VERSION=(.+)', '\1') or ['none'])
+             | first | trim }}
+
+    - name: Выкат {{ eb_version }} (прежняя — {{ eb_prev_version }})
+      block:
+        - name: Доставка образа
+          ansible.builtin.copy:
+            src: "{{ dist_dir }}/{{ image_tar }}"
+            dest: "/tmp/{{ image_tar }}"
+
+        - name: Загрузка образа
+          ansible.builtin.command: docker load -i /tmp/{{ image_tar }}
+          changed_when: true
+
+        - name: Переключение версии
+          ansible.builtin.lineinfile:
+            path: "{{ eb_root }}/deploy.env"
+            regexp: "^EB_IMAGE_VERSION="
+            line: "EB_IMAGE_VERSION={{ eb_version }}"
+
+        - name: Перезапуск сервиса
+          ansible.builtin.systemd:
+            name: easy-breezy.service
+            state: restarted
+            daemon_reload: true
+
+        - name: "Health-гейт: сервис отвечает и версия совпадает"
+          ansible.builtin.uri:
+            url: http://127.0.0.1:8000/api/system/health
+            return_content: true
+          register: health
+          retries: 20
+          delay: 3
+          until: >-
+            health.status == 200 and health.json.version == eb_version
+
+        - name: Уборка tar
+          ansible.builtin.file:
+            path: "/tmp/{{ image_tar }}"
+            state: absent
+
+      rescue:
+        - name: Откат версии в deploy.env
+          ansible.builtin.lineinfile:
+            path: "{{ eb_root }}/deploy.env"
+            regexp: "^EB_IMAGE_VERSION="
+            line: "EB_IMAGE_VERSION={{ eb_prev_version }}"
+          when: eb_prev_version != 'none'
+
+        - name: Перезапуск на прежней версии
+          ansible.builtin.systemd:
+            name: easy-breezy.service
+            state: restarted
+          when: eb_prev_version != 'none'
+
+        - name: Провал выката
+          ansible.builtin.fail:
+            msg: >-
+              Health-гейт не прошёл — выполнен откат на
+              {{ eb_prev_version }}. Логи: journalctl -u easy-breezy;
+              docker logs на хосте.

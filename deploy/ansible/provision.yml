@@ -1,0 +1,97 @@
+# Разовая подготовка целевого сервера (Raspberry Pi OS / Debian):
+#   make provision   (из корня; нужен deploy/ansible/inventory.yml)
+# После прогона заполнить на хосте /opt/easy-breezy/.env и frpc.toml,
+# затем выкатить версию: make deploy VERSION=x.y.z.
+---
+- name: Подготовка целевого сервера Easy Breezy
+  hosts: all
+  become: true
+  vars:
+    eb_root: /opt/easy-breezy
+    eb_compose_profiles: tunnel # пустая строка = без frpc-туннеля
+  tasks:
+    - name: Пакеты (curl — watchdog, bluez — BLE-стек, sqlite3 — бэкапы)
+      ansible.builtin.apt:
+        name: [curl, bluez, gzip, sqlite3]
+        state: present
+        update_cache: true
+
+    - name: Проверка docker
+      ansible.builtin.command: docker compose version
+      register: docker_check
+      changed_when: false
+      failed_when: false
+
+    - name: Установка docker (официальный convenience-скрипт)
+      ansible.builtin.shell: curl -fsSL https://get.docker.com | sh
+      when: docker_check.rc != 0
+
+    - name: Каталоги
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - "{{ eb_root }}"
+        - "{{ eb_root }}/data"
+
+    - name: Compose-файл
+      ansible.builtin.copy:
+        src: ../docker/docker-compose.yml
+        dest: "{{ eb_root }}/docker-compose.yml"
+        mode: "0644"
+
+    - name: .env из примера (только если ещё нет; заполняет владелец)
+      ansible.builtin.copy:
+        src: ../../.env.example
+        dest: "{{ eb_root }}/.env"
+        mode: "0600"
+        force: false
+
+    - name: deploy.env по умолчанию (версию пишет деплой-плейбук)
+      ansible.builtin.copy:
+        content: |
+          EB_IMAGE_VERSION=none
+          COMPOSE_PROFILES={{ eb_compose_profiles }}
+        dest: "{{ eb_root }}/deploy.env"
+        mode: "0644"
+        force: false
+
+    - name: frpc.toml из примера (только если нет; вписать токен VPS)
+      ansible.builtin.copy:
+        src: ../frp/frpc.toml.example
+        dest: "{{ eb_root }}/frpc.toml"
+        mode: "0600"
+        force: false
+
+    - name: Watchdog-скрипт
+      ansible.builtin.copy:
+        src: ../systemd/eb-watchdog.sh
+        dest: /usr/local/bin/eb-watchdog.sh
+        mode: "0755"
+
+    - name: Systemd-юниты
+      ansible.builtin.copy:
+        src: "../systemd/{{ item }}"
+        dest: "/etc/systemd/system/{{ item }}"
+        mode: "0644"
+      loop:
+        - easy-breezy.service
+        - easy-breezy-watchdog.service
+        - easy-breezy-watchdog.timer
+
+    - name: Автозапуск (сам сервис поднимет первый деплой)
+      ansible.builtin.systemd:
+        daemon_reload: true
+        name: "{{ item }}"
+        enabled: true
+      loop:
+        - easy-breezy.service
+        - easy-breezy-watchdog.timer
+
+    - name: Что дальше
+      ansible.builtin.debug:
+        msg: >-
+          Заполните {{ eb_root }}/.env (обязательно EB_TIMEZONE — в контейнере
+          системная TZ = UTC) и {{ eb_root }}/frpc.toml, затем из корня
+          репозитория: make deploy VERSION=x.y.z

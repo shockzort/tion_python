@@ -1,0 +1,13 @@
+# Периодический health-чек Easy Breezy (пара к easy-breezy-watchdog.service).
+# Раз в 30 с; 4 провала подряд (~2 мин) → рестарт сервиса — см. eb-watchdog.sh.
+
+[Unit]
+Description=Easy Breezy — таймер health-чека
+
+[Timer]
+OnBootSec=90
+OnUnitActiveSec=30
+AccuracySec=5
+
+[Install]
+WantedBy=timers.target

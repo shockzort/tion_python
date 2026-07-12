@@ -45,3 +45,5 @@ mobile/gradlew.bat
 mobile/local.properties
 mobile/manifest-checksum.txt
 mobile/store_icon.png
+deploy/ansible/inventory.yml
+deploy/dist/

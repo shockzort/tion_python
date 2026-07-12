@@ -1,31 +1,20 @@
-# Установка (Raspberry Pi, bare systemd — основной путь): docs/runbook.md
-#   1. Код в /opt/easy-breezy (git clone), собранный ui/dist рядом.
-#   2. cd /opt/easy-breezy/server && uv sync --no-dev
-#   3. cp .env.example /opt/easy-breezy/.env и заполнить
-#   4. sudo cp deploy/systemd/easy-breezy.service /etc/systemd/system/
-#   5. sudo systemctl enable --now easy-breezy
+# Целевой сервер: docker compose под управлением systemd (ставит ansible,
+# deploy/ansible/provision.yml). Версия образа — /opt/easy-breezy/deploy.env
+# (пишет деплой-плейбук). Самолечение — easy-breezy-watchdog.timer.
 
 [Unit]
-Description=Easy Breezy — управление бризерами Tion
-After=network.target bluetooth.target
-Wants=bluetooth.target
+Description=Easy Breezy — управление бризерами Tion (docker compose)
+Requires=docker.service
+After=docker.service network-online.target bluetooth.target
+Wants=network-online.target bluetooth.target
 
 [Service]
-# Type=notify: сервис шлёт READY=1 после старта подсистем и WATCHDOG=1
-# каждые 30 с (core/watchdog.py); зависание диагностирует systemd.
-Type=notify
-NotifyAccess=main
-WatchdogSec=60
-User=breezy
-Group=breezy
-SupplementaryGroups=bluetooth
-WorkingDirectory=/opt/easy-breezy/server
-EnvironmentFile=/opt/easy-breezy/.env
-ExecStart=/opt/easy-breezy/server/.venv/bin/python -m easy_breezy
-Restart=always
-RestartSec=3
-# Ограничения ресурсов (RPi4)
-MemoryMax=512M
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/easy-breezy
+EnvironmentFile=/opt/easy-breezy/deploy.env
+ExecStart=/usr/bin/docker compose up -d --remove-orphans
+ExecStop=/usr/bin/docker compose down
 
 [Install]
 WantedBy=multi-user.target
