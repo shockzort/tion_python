@@ -44,6 +44,14 @@ class UserRepo:
         )
         return result.scalar_one_or_none()
 
+    async def list_all(self) -> list[User]:
+        result = await self._session.execute(select(User).order_by(User.id))
+        return list(result.scalars())
+
+    async def delete(self, user: User) -> None:
+        """Сессии/api-токены/oauth-записи уходят каскадом (FK CASCADE)."""
+        await self._session.delete(user)
+
 
 class SessionRepo:
     def __init__(self, session: AsyncSession) -> None:

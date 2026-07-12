@@ -46,6 +46,14 @@ def hash_token(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
+def hash_password(password: str) -> str:
+    """argon2id-хэш пароля — общая точка сервиса и CLI.
+
+    CPU-bound: в event loop вызывать через ``asyncio.to_thread``.
+    """
+    return PasswordHasher().hash(password)
+
+
 class _LoginThrottle:
     """Троттлинг логина: N неудач подряд — блокировка на окно."""
 

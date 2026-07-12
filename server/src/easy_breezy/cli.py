@@ -1,26 +1,44 @@
 """CLI ``breezy`` — диагностика и управление бризерами без UI.
 
-Работает напрямую по MAC-адресу (реестр устройств появится в Фазе 2).
-Используется в hardware-смоуках фаз 1/4/6.
+BLE-команды работают напрямую по MAC-адресу (используются в
+hardware-смоуках фаз 1/4/6). Подкоманды ``user`` управляют
+пользователями веб-интерфейса напрямую через БД (``EB_DATA_DIR`` /
+``EB_DATABASE_URL``) — сервер останавливать не нужно: сессии
+проверяются по БД на каждом запросе.
 """
 
 from __future__ import annotations
 
 import asyncio
 import dataclasses
+import datetime
+import time
 from typing import Annotated
 
 import typer
+from sqlalchemy.exc import IntegrityError
 
 from easy_breezy import __version__
+from easy_breezy.auth import hash_password
 from easy_breezy.ble.driver import S4Driver
 from easy_breezy.ble.protocol.s4 import GATT_NOTIFY, GATT_WRITE, Mode, S4State
 from easy_breezy.ble.scanner import scan as ble_scan
 from easy_breezy.ble.supervisor import ConnectionState, DeviceSupervisor
 from easy_breezy.ble.transport import BleakTransport, TransportError
+from easy_breezy.config import Settings
 from easy_breezy.logging import setup_logging
+from easy_breezy.storage import Database
+from easy_breezy.storage.repos import SessionRepo, UserRepo
 
 app = typer.Typer(help="Easy Breezy — управление бризерами Tion", no_args_is_help=True)
+
+user_app = typer.Typer(
+    help="Пользователи веб-интерфейса (напрямую через БД)", no_args_is_help=True
+)
+app.add_typer(user_app, name="user")
+
+PASSWORD_MIN_LENGTH = 8
+"""Минимальная длина пароля — как в POST /api/auth/setup."""
 
 MacArg = Annotated[
     str, typer.Argument(help="MAC-адрес бризера, например AA:BB:CC:DD:EE:FF")
@@ -232,6 +250,125 @@ def monitor(
         asyncio.run(run())
     except KeyboardInterrupt:
         typer.echo("Остановлено.")
+
+
+# --- пользователи ----------------------------------------------------------
+
+
+UsernameArg = Annotated[str, typer.Argument(help="Имя пользователя")]
+
+
+def _prompt_password() -> str:
+    password: str = typer.prompt("Пароль", hide_input=True, confirmation_prompt=True)
+    if len(password) < PASSWORD_MIN_LENGTH:
+        typer.echo(f"Пароль короче {PASSWORD_MIN_LENGTH} символов.")
+        raise typer.Exit(1)
+    return password
+
+
+@user_app.command(name="add")
+def user_add(username: UsernameArg) -> None:
+    """Создать пользователя (пароль спрашивается интерактивно)."""
+    password_hash = hash_password(_prompt_password())
+
+    async def run() -> None:
+        db = _open_db()
+        try:
+            await db.migrate()
+            async with db.session() as session:
+                await UserRepo(session).create(
+                    username=username,
+                    password_hash=password_hash,
+                    created_at=int(time.time()),
+                )
+        except IntegrityError:
+            typer.echo(f"Пользователь «{username}» уже существует.")
+            raise typer.Exit(1) from None
+        finally:
+            await db.dispose()
+        typer.echo(f"Пользователь «{username}» создан.")
+
+    asyncio.run(run())
+
+
+@user_app.command(name="list")
+def user_list() -> None:
+    """Показать пользователей."""
+
+    async def run() -> None:
+        db = _open_db()
+        try:
+            await db.migrate()
+            async with db.session() as session:
+                users = await UserRepo(session).list_all()
+        finally:
+            await db.dispose()
+        if not users:
+            typer.echo("Пользователей нет (сервер напечатает setup-токен).")
+            return
+        for user in users:
+            created = datetime.datetime.fromtimestamp(
+                user.created_at, tz=datetime.UTC
+            ).strftime("%Y-%m-%d")
+            typer.echo(f"{user.id:>3}  {user.username}  (создан {created})")
+
+    asyncio.run(run())
+
+
+@user_app.command(name="passwd")
+def user_passwd(username: UsernameArg) -> None:
+    """Сменить пароль (все сессии пользователя сбрасываются)."""
+    password_hash = hash_password(_prompt_password())
+
+    async def run() -> None:
+        db = _open_db()
+        try:
+            await db.migrate()
+            async with db.session() as session:
+                user = await UserRepo(session).get_by_username(username)
+                if user is None:
+                    typer.echo(f"Пользователь «{username}» не найден.")
+                    raise typer.Exit(1)
+                user.password_hash = password_hash
+                dropped = await SessionRepo(session).delete_for_user(user.id)
+        finally:
+            await db.dispose()
+        typer.echo(f"Пароль обновлён, сессий сброшено: {dropped}.")
+
+    asyncio.run(run())
+
+
+@user_app.command(name="remove")
+def user_remove(username: UsernameArg) -> None:
+    """Удалить пользователя (сессии и api-токены уходят каскадом)."""
+
+    async def run() -> None:
+        db = _open_db()
+        try:
+            await db.migrate()
+            async with db.session() as session:
+                repo = UserRepo(session)
+                user = await repo.get_by_username(username)
+                if user is None:
+                    typer.echo(f"Пользователь «{username}» не найден.")
+                    raise typer.Exit(1)
+                if await repo.count() == 1:
+                    typer.echo(
+                        "Это последний пользователь: после удаления сервер "
+                        "напечатает setup-токен при следующем старте."
+                    )
+                if not typer.confirm(f"Удалить «{username}»?"):
+                    raise typer.Exit(0)
+                await repo.delete(user)
+        finally:
+            await db.dispose()
+        typer.echo(f"Пользователь «{username}» удалён.")
+
+    asyncio.run(run())
+
+
+def _open_db() -> Database:
+    return Database(Settings().resolved_database_url())
 
 
 def main() -> None:
