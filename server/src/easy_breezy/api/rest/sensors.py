@@ -18,11 +18,20 @@ from sqlalchemy.exc import IntegrityError
 
 from easy_breezy.api.deps import ContainerDep, require_user
 from easy_breezy.api.rest.automation import ScenarioAction, _notify_changed
+from easy_breezy.automation.maintain import (
+    DEFAULT_COOLDOWN_S,
+    DEFAULT_DEADBAND,
+    KIND_MAINTAIN,
+    SPEED_FLOOR_ALLOWED,
+    disable_conflicting_maintain,
+)
 from easy_breezy.container import AppContainer
 from easy_breezy.core.events import TOPIC_DEVICE_LIST_CHANGED
 from easy_breezy.core.sensors import KIND_MQTT, STALE_AFTER_SECONDS
 from easy_breezy.storage.models import Sensor, Trigger
 from easy_breezy.storage.repos import (
+    DeviceRepo,
+    GroupRepo,
     RoomRepo,
     ScenarioRepo,
     SensorRepo,
@@ -76,16 +85,45 @@ class SensorUpdate(BaseModel):
     room_id: int | None = None
 
 
+class TriggerTarget(BaseModel):
+    """Цель регулирования maintain-триггера: устройство или группа."""
+
+    target_type: Literal["device", "group"]
+    target_id: str | int
+
+    @model_validator(mode="after")
+    def _check_target_id(self) -> TriggerTarget:
+        if self.target_type == "group" and not isinstance(self.target_id, int):
+            raise ValueError("target_id группы — целое число")
+        if self.target_type == "device" and not isinstance(self.target_id, str):
+            raise ValueError("target_id устройства — uuid-строка")
+        return self
+
+    def to_stored(self) -> dict[str, Any]:
+        return {"target_type": self.target_type, "target_id": self.target_id}
+
+
 class TriggerBody(BaseModel):
+    """Тело триггера; правила валидации зависят от ``kind``.
+
+    Для ``maintain``: ``threshold`` — целевой CO₂, ``hysteresis`` — зона
+    покоя (по умолчанию 50 ppm), ``cooldown_s`` — минимум секунд между
+    корректировками (по умолчанию 120), ``op`` не используется.
+    """
+
     name: str = Field(min_length=1, max_length=100)
     sensor_id: int
     metric: Literal["co2", "temperature", "humidity"]
-    op: Literal[">", "<"]
+    kind: Literal["threshold", "maintain"] = "threshold"
+    op: Literal[">", "<"] | None = None
     threshold: float
     hysteresis: float = Field(default=0.0, ge=0)
     cooldown_s: int = Field(default=0, ge=0)
     window_start: str | None = Field(default=None, pattern=_WINDOW_PATTERN)
     window_end: str | None = Field(default=None, pattern=_WINDOW_PATTERN)
+    speed_min: int | None = Field(default=None, ge=SPEED_FLOOR_ALLOWED, le=6)
+    speed_max: int | None = Field(default=None, ge=1, le=6)
+    targets: list[TriggerTarget] | None = None
     enter_scenario_id: int | None = None
     enter_actions: list[ScenarioAction] | None = None
     exit_scenario_id: int | None = None
@@ -96,6 +134,19 @@ class TriggerBody(BaseModel):
     def _check(self) -> TriggerBody:
         if (self.window_start is None) != (self.window_end is None):
             raise ValueError("окно задаётся обеими границами или никак")
+        if self.kind == "maintain":
+            return self._check_maintain()
+        return self._check_threshold()
+
+    def _check_threshold(self) -> TriggerBody:
+        if self.op is None:
+            raise ValueError("op обязателен для порогового триггера")
+        if (
+            self.speed_min is not None
+            or self.speed_max is not None
+            or self.targets is not None
+        ):
+            raise ValueError("диапазон скоростей и цели — только для поддержания CO₂")
         if self.enter_scenario_id is not None and self.enter_actions is not None:
             raise ValueError("enter: либо сценарий, либо действия")
         if self.exit_scenario_id is not None and self.exit_actions is not None:
@@ -106,17 +157,50 @@ class TriggerBody(BaseModel):
             raise ValueError("задайте действия хотя бы на вход или на выход")
         return self
 
+    def _check_maintain(self) -> TriggerBody:
+        if self.metric != "co2":
+            raise ValueError("поддержание реализовано только для CO₂")
+        if self.speed_min is None or self.speed_max is None:
+            raise ValueError("задайте диапазон скоростей (speed_min и speed_max)")
+        if self.speed_min > self.speed_max:
+            raise ValueError("speed_min не может превышать speed_max")
+        if not self.targets:
+            raise ValueError("задайте хотя бы одну цель регулирования")
+        if (
+            self.enter_scenario_id is not None
+            or self.enter_actions is not None
+            or self.exit_scenario_id is not None
+            or self.exit_actions is not None
+        ):
+            raise ValueError("enter/exit-действия не применимы к поддержанию")
+        self.op = ">"  # колонка NOT NULL; для maintain не используется
+        if "hysteresis" not in self.model_fields_set:
+            self.hysteresis = DEFAULT_DEADBAND
+        if self.hysteresis <= 0:
+            raise ValueError("зона покоя (hysteresis) должна быть больше нуля")
+        if "cooldown_s" not in self.model_fields_set:
+            self.cooldown_s = DEFAULT_COOLDOWN_S
+        return self
+
     def stored_fields(self) -> dict[str, Any]:
         return {
             "name": self.name,
             "sensor_id": self.sensor_id,
             "metric": self.metric,
+            "kind": self.kind,
             "op": self.op,
             "threshold": self.threshold,
             "hysteresis": self.hysteresis,
             "cooldown_s": self.cooldown_s,
             "window_start": self.window_start,
             "window_end": self.window_end,
+            "speed_min": self.speed_min,
+            "speed_max": self.speed_max,
+            "targets": (
+                [target.to_stored() for target in self.targets]
+                if self.targets is not None
+                else None
+            ),
             "enter_scenario_id": self.enter_scenario_id,
             "enter_actions": (
                 [action.to_stored() for action in self.enter_actions]
@@ -138,12 +222,16 @@ class TriggerView(BaseModel):
     name: str
     sensor_id: int
     metric: str
+    kind: str
     op: str
     threshold: float
     hysteresis: float
     cooldown_s: int
     window_start: str | None
     window_end: str | None
+    speed_min: int | None
+    speed_max: int | None
+    targets: list[dict[str, Any]] | None
     enter_scenario_id: int | None
     enter_actions: list[dict[str, Any]] | None
     exit_scenario_id: int | None
@@ -158,12 +246,16 @@ class TriggerView(BaseModel):
             name=record.name,
             sensor_id=record.sensor_id,
             metric=record.metric,
+            kind=record.kind,
             op=record.op,
             threshold=record.threshold,
             hysteresis=record.hysteresis,
             cooldown_s=record.cooldown_s,
             window_start=record.window_start,
             window_end=record.window_end,
+            speed_min=record.speed_min,
+            speed_max=record.speed_max,
+            targets=record.targets,
             enter_scenario_id=record.enter_scenario_id,
             enter_actions=record.enter_actions,
             exit_scenario_id=record.exit_scenario_id,
@@ -181,6 +273,20 @@ async def _check_trigger_refs(container: AppContainer, body: TriggerBody) -> Non
         for scenario_id in (body.enter_scenario_id, body.exit_scenario_id):
             if scenario_id is not None and await scenarios.get(scenario_id) is None:
                 raise HTTPException(status_code=404, detail="сценарий не найден")
+        devices = DeviceRepo(session)
+        groups = GroupRepo(session)
+        for target in body.targets or []:
+            if target.target_type == "device":
+                device = await devices.get(str(target.target_id))
+                if device is None or device.deleted_at is not None:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"устройство {target.target_id} не найдено",
+                    )
+            elif await groups.get(int(target.target_id)) is None:
+                raise HTTPException(
+                    status_code=404, detail=f"группа {target.target_id} не найдена"
+                )
 
 
 # --- датчики ---------------------------------------------------------------
@@ -261,10 +367,15 @@ async def list_triggers(container: ContainerDep) -> list[TriggerView]:
 @router.post("/triggers", status_code=201)
 async def add_trigger(body: TriggerBody, container: ContainerDep) -> TriggerView:
     await _check_trigger_refs(container, body)
+    disabled: list[int] = []
     async with container.db.session() as session:
         record = await TriggerRepo(session).create(**body.stored_fields())
+        if record.enabled and record.kind == KIND_MAINTAIN:
+            disabled = await disable_conflicting_maintain(session, record)
         view = TriggerView.from_record(record)
     _notify_changed(container, "trigger", "created", view.id)
+    for conflict_id in disabled:
+        _notify_changed(container, "trigger", "updated", conflict_id)
     return view
 
 
@@ -273,6 +384,7 @@ async def update_trigger(
     trigger_id: int, body: TriggerBody, container: ContainerDep
 ) -> TriggerView:
     await _check_trigger_refs(container, body)
+    disabled: list[int] = []
     async with container.db.session() as session:
         record = await TriggerRepo(session).get(trigger_id)
         if record is None:
@@ -280,8 +392,12 @@ async def update_trigger(
         for field, value in body.stored_fields().items():
             setattr(record, field, value)
         record.is_active = False  # условие изменилось — защёлка с чистого листа
+        if record.enabled and record.kind == KIND_MAINTAIN:
+            disabled = await disable_conflicting_maintain(session, record)
         view = TriggerView.from_record(record)
     _notify_changed(container, "trigger", "updated", trigger_id)
+    for conflict_id in disabled:
+        _notify_changed(container, "trigger", "updated", conflict_id)
     return view
 
 

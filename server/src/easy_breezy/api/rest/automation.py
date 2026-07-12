@@ -28,6 +28,7 @@ from easy_breezy.storage.repos import (
     GroupRepo,
     ScenarioRepo,
     ScheduleRepo,
+    TriggerRepo,
 )
 
 router = APIRouter(
@@ -37,26 +38,48 @@ router = APIRouter(
 _MANUAL_PRIORITY = 0
 
 
-class ScenarioAction(BaseModel):
-    """Действие сценария: цель + дельта; хранится в JSON-поле actions."""
+class TriggerToggle(BaseModel):
+    """Дельта действия над триггером: включить или выключить."""
 
-    target_type: Literal["device", "group"]
+    enabled: bool
+
+
+class ScenarioAction(BaseModel):
+    """Действие сценария: цель + дельта; хранится в JSON-поле actions.
+
+    Цель-триггер (``target_type="trigger"``) переключает триггер вместо
+    отправки команды устройству — так расписание через сценарий меняет
+    активный режим поддержания CO₂.
+    """
+
+    target_type: Literal["device", "group", "trigger"]
     target_id: str | int
-    delta: CommandBody
+    delta: CommandBody | TriggerToggle
 
     @model_validator(mode="after")
     def _check_target_id(self) -> ScenarioAction:
-        if self.target_type == "group" and not isinstance(self.target_id, int):
-            raise ValueError("target_id группы — целое число")
+        if self.target_type in ("group", "trigger") and not isinstance(
+            self.target_id, int
+        ):
+            raise ValueError(f"target_id {self.target_type} — целое число")
         if self.target_type == "device" and not isinstance(self.target_id, str):
             raise ValueError("target_id устройства — uuid-строка")
+        if self.target_type == "trigger" and not isinstance(self.delta, TriggerToggle):
+            raise ValueError("для триггера delta — {'enabled': bool}")
+        if self.target_type != "trigger" and isinstance(self.delta, TriggerToggle):
+            raise ValueError("delta {'enabled'} применима только к триггеру")
         return self
 
     def to_stored(self) -> dict[str, Any]:
+        delta: dict[str, Any]
+        if isinstance(self.delta, TriggerToggle):
+            delta = {"enabled": self.delta.enabled}
+        else:
+            delta = self.delta.to_delta().to_payload()
         return {
             "target_type": self.target_type,
             "target_id": self.target_id,
-            "delta": self.delta.to_delta().to_payload(),
+            "delta": delta,
         }
 
 
@@ -127,10 +150,11 @@ def _notify_changed(
 async def _validate_targets(
     container: AppContainer, actions: list[ScenarioAction]
 ) -> None:
-    """Цели действий существуют: устройство активно, группа заведена."""
+    """Цели действий существуют: устройство активно, группа/триггер заведены."""
     async with container.db.session() as session:
         devices = DeviceRepo(session)
         groups = GroupRepo(session)
+        triggers = TriggerRepo(session)
         for action in actions:
             if action.target_type == "device":
                 device = await devices.get(str(action.target_id))
@@ -138,6 +162,12 @@ async def _validate_targets(
                     raise HTTPException(
                         status_code=404,
                         detail=f"устройство {action.target_id} не найдено",
+                    )
+            elif action.target_type == "trigger":
+                if await triggers.get(int(action.target_id)) is None:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"триггер {action.target_id} не найден",
                     )
             else:
                 if await groups.get(int(action.target_id)) is None:
