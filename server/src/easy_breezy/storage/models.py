@@ -317,6 +317,19 @@ class Setting(Base):
     value: Mapped[Any] = mapped_column(JSON)
 
 
+class UserPref(Base):
+    """Предпочтение пользователя (настройки UI: панели графиков и т.п.)."""
+
+    __tablename__ = "user_prefs"
+
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    key: Mapped[str] = mapped_column(String(50), primary_key=True)
+    value: Mapped[Any] = mapped_column(JSON)
+    updated_at: Mapped[int]
+
+
 class PushSubscription(Base):
     __tablename__ = "push_subscriptions"
 

@@ -23,6 +23,7 @@ from easy_breezy.api.rest import (
     groups,
     intents,
     pairing,
+    prefs,
     push,
     sensors,
     system,
@@ -101,6 +102,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(automation.router)
     app.include_router(sensors.router)
     app.include_router(telemetry.router)
+    app.include_router(prefs.router)
     app.include_router(intents.router)
     app.include_router(push.router)
     app.include_router(ws.router)

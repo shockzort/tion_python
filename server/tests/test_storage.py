@@ -42,6 +42,7 @@ async def test_migrate_creates_full_schema(db: Database) -> None:
         "oauth_tokens",
         "settings",
         "push_subscriptions",
+        "user_prefs",
     }
     assert expected <= tables
     # повторный migrate — no-op (идемпотентность)
