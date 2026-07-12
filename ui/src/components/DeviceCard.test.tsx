@@ -1,8 +1,10 @@
 import { fireEvent, render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { Device } from '../api/types'
 import DeviceCard from './DeviceCard'
+
+beforeEach(() => localStorage.clear())
 
 const onlineDevice: Device = {
   uuid: 'dev-1',
@@ -147,5 +149,67 @@ describe('DeviceCard', () => {
     )
     expect(screen.getByText(/Нет данных/)).toBeInTheDocument()
     expect(screen.queryByRole('slider')).not.toBeInTheDocument()
+  })
+
+  it('клик по заголовку сворачивает карточку до сводки и разворачивает обратно', () => {
+    render(
+      <DeviceCard
+        device={onlineDevice}
+        onCommand={vi.fn()}
+        onReleaseHold={vi.fn()}
+      />,
+    )
+    const header = screen.getByRole('button', { name: /Спальня/ })
+    expect(header).toHaveAttribute('aria-expanded', 'true')
+
+    fireEvent.click(header)
+    expect(header).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByRole('slider')).not.toBeInTheDocument()
+    expect(screen.getByText(/Включён · скорость 3\/6 · нагрев 22°C/)).toBeInTheDocument()
+    // бейдж соединения виден и в свёрнутом виде
+    expect(screen.getByText('на связи')).toBeInTheDocument()
+
+    fireEvent.click(header)
+    expect(screen.getByRole('slider', { name: 'Скорость' })).toBeInTheDocument()
+  })
+
+  it('свёрнутость запоминается в localStorage per-устройство', () => {
+    const first = render(
+      <DeviceCard
+        device={onlineDevice}
+        onCommand={vi.fn()}
+        onReleaseHold={vi.fn()}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /Спальня/ }))
+    first.unmount()
+
+    render(
+      <DeviceCard
+        device={onlineDevice}
+        onCommand={vi.fn()}
+        onReleaseHold={vi.fn()}
+      />,
+    )
+    expect(screen.getByRole('button', { name: /Спальня/ })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    )
+    expect(screen.queryByRole('slider')).not.toBeInTheDocument()
+  })
+
+  it('свёрнутый выключенный бризер показывает «Выключен»', () => {
+    localStorage.setItem('eb:card-collapsed:dev-1', 'true')
+    render(
+      <DeviceCard
+        device={{
+          ...onlineDevice,
+          state: { ...onlineDevice.state!, power: false },
+        }}
+        onCommand={vi.fn()}
+        onReleaseHold={vi.fn()}
+      />,
+    )
+    expect(screen.getByText('Выключен')).toBeInTheDocument()
   })
 })

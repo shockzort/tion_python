@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 
 import type { CommandBody, Device } from '../api/types'
+import { usePersistentState } from '../lib/usePersistentState'
 import { Badge, Card, Toggle } from './ui'
 
 export type DeviceCardProps = {
@@ -32,14 +33,35 @@ export default function DeviceCard({
   const { state } = device
   const online = device.connection === 'online'
   const controlsEnabled = online && state !== null
+  // collapse per-устройство и per-браузер: на телефоне карточки удобно свернуть
+  const [collapsed, setCollapsed] = usePersistentState(
+    `eb:card-collapsed:${device.uuid}`,
+    false,
+  )
 
   return (
     <Card className="flex flex-col gap-3">
       <header className="flex items-start justify-between gap-2">
-        <div>
-          <h3 className="font-medium">{device.name}</h3>
-          {roomName && <p className="text-xs text-slate-500">{roomName}</p>}
-        </div>
+        <button
+          type="button"
+          aria-expanded={!collapsed}
+          title={collapsed ? 'Развернуть' : 'Свернуть'}
+          onClick={() => setCollapsed((value) => !value)}
+          className="flex min-w-0 items-start gap-1.5 text-left"
+        >
+          <span
+            aria-hidden="true"
+            className={`mt-0.5 text-xs text-slate-500 transition-transform ${
+              collapsed ? '' : 'rotate-90'
+            }`}
+          >
+            ▸
+          </span>
+          <span className="min-w-0">
+            <h3 className="font-medium">{device.name}</h3>
+            {roomName && <p className="text-xs text-slate-500">{roomName}</p>}
+          </span>
+        </button>
         <div className="flex flex-wrap justify-end gap-1.5">
           <ConnectionBadge connection={device.connection} />
           {device.hold_until !== null && (
@@ -61,6 +83,19 @@ export default function DeviceCard({
 
       {state === null ? (
         <p className="text-sm text-slate-500">Нет данных — ждём устройство…</p>
+      ) : collapsed ? (
+        <p className="text-sm text-slate-400">
+          {state.power
+            ? `Включён · скорость ${state.fan_speed}/6` +
+              (state.heater ? ` · нагрев ${state.heater_temp}°C` : '')
+            : 'Выключен'}
+          {state.filter_remain_days < FILTER_WARN_DAYS && (
+            <span className="text-rose-400">
+              {' '}
+              · фильтр {Math.round(state.filter_remain_days)} дн
+            </span>
+          )}
+        </p>
       ) : (
         <div className={online ? '' : 'opacity-60'}>
           <Toggle
