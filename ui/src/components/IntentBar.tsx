@@ -27,7 +27,7 @@ export default function IntentBar() {
         <input
           value={text}
           onChange={(event) => setText(event.target.value)}
-          placeholder="Скажите бризеру: «включи в спальне на тройку»"
+          placeholder="«включи в спальне на тройку»"
           aria-label="текстовая команда"
           className="flex-1 rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm outline-none placeholder:text-slate-600 focus:border-sky-500"
         />

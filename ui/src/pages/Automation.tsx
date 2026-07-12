@@ -124,15 +124,18 @@ function ScenariosTab() {
         </p>
       )}
       {scenarios.data.map((scenario) => (
-        <Card key={scenario.id} className="flex items-center justify-between gap-3">
-          <div className="min-w-0">
+        <Card
+          key={scenario.id}
+          className="flex flex-wrap items-center justify-between gap-3"
+        >
+          <div className="w-full min-w-0 sm:w-auto sm:flex-1">
             <p className="font-medium">{scenario.name}</p>
             <p className="truncate text-xs text-slate-400">
               {scenario.actions.length}{' '}
               {plural(scenario.actions.length, 'действие', 'действия', 'действий')}
             </p>
           </div>
-          <div className="flex shrink-0 gap-2">
+          <div className="ml-auto flex shrink-0 gap-2">
             <Button
               variant="primary"
               disabled={runScenario.isPending}
@@ -530,9 +533,12 @@ function SchedulesTab() {
         </p>
       )}
       {schedules.data.map((schedule) => (
-        <Card key={schedule.id} className="flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
+        <Card
+          key={schedule.id}
+          className="flex flex-wrap items-center justify-between gap-3"
+        >
+          <div className="w-full min-w-0 sm:w-auto sm:flex-1">
+            <div className="flex flex-wrap items-center gap-2">
               <p className="font-medium">{schedule.name}</p>
               {!schedule.enabled && <Badge tone="muted">выключено</Badge>}
             </div>
@@ -542,7 +548,7 @@ function SchedulesTab() {
                 ` → ${scenarioNames.get(schedule.scenario_id) ?? 'сценарий'}`}
             </p>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="ml-auto flex shrink-0 items-center gap-2">
             <Toggle
               label=""
               checked={schedule.enabled}
@@ -780,9 +786,12 @@ function TriggersTab() {
         </p>
       )}
       {triggers.data.map((trigger) => (
-        <Card key={trigger.id} className="flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
+        <Card
+          key={trigger.id}
+          className="flex flex-wrap items-center justify-between gap-3"
+        >
+          <div className="w-full min-w-0 sm:w-auto sm:flex-1">
+            <div className="flex flex-wrap items-center gap-2">
               <p className="font-medium">{trigger.name}</p>
               {trigger.kind === 'maintain' && <Badge tone="ok">поддержание</Badge>}
               {trigger.is_active && <Badge tone="warn">сработал</Badge>}
@@ -808,7 +817,7 @@ function TriggersTab() {
                 ` · ${trigger.window_start}–${trigger.window_end}`}
             </p>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="ml-auto flex shrink-0 items-center gap-2">
             <Toggle
               label=""
               checked={trigger.enabled}
@@ -890,8 +899,8 @@ function TriggerEditor({
   const [hysteresis, setHysteresis] = useState(
     String(maintainInitial ? 200 : (trigger?.hysteresis ?? 200)),
   )
-  const [cooldownMin, setCooldownMin] = useState(
-    String(maintainInitial ? 0 : Math.round((trigger?.cooldown_s ?? 0) / 60)),
+  const [cooldownS, setCooldownS] = useState(
+    String(maintainInitial ? 0 : (trigger?.cooldown_s ?? 0)),
   )
   const [useWindow, setUseWindow] = useState(trigger?.window_start != null)
   const [windowStart, setWindowStart] = useState(trigger?.window_start ?? '08:00')
@@ -906,8 +915,8 @@ function TriggerEditor({
   const [deadband, setDeadband] = useState(
     String(maintainInitial ? (trigger?.hysteresis ?? 50) : 50),
   )
-  const [maintainCooldownMin, setMaintainCooldownMin] = useState(
-    String(maintainInitial ? Math.round((trigger?.cooldown_s ?? 120) / 60) : 2),
+  const [maintainCooldownS, setMaintainCooldownS] = useState(
+    String(maintainInitial ? (trigger?.cooldown_s ?? 120) : 120),
   )
   const [speedMin, setSpeedMin] = useState(String(trigger?.speed_min ?? 1))
   const [speedMax, setSpeedMax] = useState(String(trigger?.speed_max ?? 6))
@@ -950,7 +959,7 @@ function TriggerEditor({
   const buildThresholdBody = (): TriggerBody | string => {
     const parsedThreshold = Number(threshold)
     const parsedHysteresis = Number(hysteresis)
-    const parsedCooldown = Number(cooldownMin)
+    const parsedCooldown = Number(cooldownS)
     if (!Number.isFinite(parsedThreshold)) return 'порог — число'
     if (!Number.isFinite(parsedHysteresis) || parsedHysteresis < 0) {
       return 'гистерезис — неотрицательное число'
@@ -974,7 +983,7 @@ function TriggerEditor({
       op,
       threshold: parsedThreshold,
       hysteresis: parsedHysteresis,
-      cooldown_s: Math.max(0, Math.round(parsedCooldown * 60)),
+      cooldown_s: Math.max(0, Math.round(parsedCooldown)),
       window_start: useWindow ? windowStart : null,
       window_end: useWindow ? windowEnd : null,
       enter_scenario_id: enterScenario === '' ? null : Number(enterScenario),
@@ -988,7 +997,7 @@ function TriggerEditor({
   const buildMaintainBody = (): TriggerBody | string => {
     const parsedTarget = Number(threshold)
     const parsedDeadband = Number(deadband)
-    const parsedCooldown = Number(maintainCooldownMin)
+    const parsedCooldown = Number(maintainCooldownS)
     const min = Number(speedMin)
     const max = Number(speedMax)
     if (!Number.isFinite(parsedTarget) || parsedTarget <= 0) {
@@ -1006,7 +1015,7 @@ function TriggerEditor({
       kind: 'maintain',
       threshold: parsedTarget,
       hysteresis: parsedDeadband,
-      cooldown_s: Math.max(0, Math.round(parsedCooldown * 60)),
+      cooldown_s: Math.max(0, Math.round(parsedCooldown)),
       window_start: useWindow ? windowStart : null,
       window_end: useWindow ? windowEnd : null,
       speed_min: min,
@@ -1120,10 +1129,10 @@ function TriggerEditor({
               />
             </label>
             <label className="flex flex-col gap-1 text-xs text-slate-400">
-              Кулдаун, мин
+              Кулдаун, с
               <input
-                value={cooldownMin}
-                onChange={(event) => setCooldownMin(event.target.value)}
+                value={cooldownS}
+                onChange={(event) => setCooldownS(event.target.value)}
                 inputMode="numeric"
                 className={inputClass}
               />
@@ -1182,10 +1191,10 @@ function TriggerEditor({
               </select>
             </label>
             <label className="flex flex-col gap-1 text-xs text-slate-400">
-              Кулдаун, мин
+              Кулдаун, с
               <input
-                value={maintainCooldownMin}
-                onChange={(event) => setMaintainCooldownMin(event.target.value)}
+                value={maintainCooldownS}
+                onChange={(event) => setMaintainCooldownS(event.target.value)}
                 inputMode="numeric"
                 className={inputClass}
                 aria-label="кулдаун поддержания"
