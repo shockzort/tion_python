@@ -21,23 +21,31 @@ uv run breezy state EC:82:9F:A4:90:14   # CLI по протоколу (бонд 
 печатается в лог при старте без пользователей; дальше login-cookie или
 api-токен (`POST /api/tokens`) с `Authorization: Bearer`.
 
-## Отладочный стенд MVP (ноутбук)
+## Боевой сервер (NUC, docker compose)
+
+Хост: `ssh nuc-minisforum-wifi` (Ubuntu, x86_64), раскладка
+`/opt/easy-breezy` — см. `deploy/ansible/README.md`. Переезд со
+стендового ноутбука — 2026-07-12 (данные и конфиги перенесены).
 
 Внешний доступ: `https://easy-breezy.duckdns.org` → VPS `195.133.20.205`
-(nginx TLS + frps, юниты systemd) → frpc на ноутбуке → сервис :8000.
+(nginx TLS + frps, юниты systemd) → frpc-контейнер на NUC → сервис :8000.
 
-- Сервис: из `server/` командой `uv run python -m easy_breezy` в фоне
-  (лог — scratchpad `eb-stand.log`); данные в `server/data/easy_breezy.db`;
-  секреты в `server/.env` (client-креды Яндекса, Secure-cookie).
-- frpc: `~/.local/opt/frp/frpc -c ~/.local/opt/frp/frpc.toml` (токен VPS внутри).
+- Управление: `sudo systemctl {start|stop|restart} easy-breezy`
+  (юнит поверх `docker compose`); новая версия — `make release` +
+  `make deploy` с dev-машины (раздел «Обновление версии»).
+- Логи: `sudo docker logs -f easy-breezy-easy-breezy-1`; watchdog —
+  `journalctl -t eb-watchdog`; статус контейнеров — `sudo docker ps`.
 - Проверка: `curl https://easy-breezy.duckdns.org/api/system/health`.
-- Учётка: `admin` (пароль у владельца).
-- Бризеры (бонды на этом ноутбуке): `EC:82:9F:A4:90:14` Гостиная ·
-  `D0:60:0E:F7:EA:D4` Детская · `EB:B5:4E:13:31:B5` Спальня.
-  На боевом RPi сопряжение повторить (бонд per-host); у Детской/Спальни
-  ресурс фильтра на нуле — владельцу заменить/сбросить.
+- Секреты: `/opt/easy-breezy/.env` (креды Яндекса, MagicAir,
+  `EB_TIMEZONE` — обязателен, в контейнере системная TZ = UTC);
+  токен туннеля — `/opt/easy-breezy/frpc.toml`.
+- Учётка: `admin` (пароль у владельца; БД перенесена со стенда).
+- Бризеры: `EC:82:9F:A4:90:14` Гостиная · `D0:60:0E:F7:EA:D4` Детская ·
+  `EB:B5:4E:13:31:B5` Спальня. Бонды BLE — per-host: после переезда
+  сопрячь заново из мастера UI (кнопка ~5 с до синего мигания);
+  у Детской/Спальни ресурс фильтра на нуле — заменить/сбросить.
 - Датчики: `EB_MAGICAIR_EMAIL`/`EB_MAGICAIR_PASSWORD` (учётка приложения
-  Tion) и/или `EB_MQTT_URL` в `server/.env`.
+  Tion) и/или `EB_MQTT_URL` в `.env`.
 - Пока сервис держит соединения, MagicAir/Tion Remote к бризерам не
   подключаются (ADR-0005).
 
