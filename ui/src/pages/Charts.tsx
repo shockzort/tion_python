@@ -89,6 +89,9 @@ export default function Charts() {
   const savePref = useSavePref<ChartPanel[]>('charts')
   // черновик: правки локальны до явного «Сохранить» (случайное удаление обратимо)
   const [draft, setDraft] = useState<ChartPanel[] | null>(null)
+  // во время переноса Recharts-графики подменяются заглушками: иначе каждый
+  // кадр жеста перерисовывает тяжёлые SVG и на телефоне жест тормозит
+  const [isDragging, setIsDragging] = useState(false)
 
   // мышь — сразу по сдвигу; тач — долгое нажатие (не конфликтует со скроллом)
   const dndSensors = useSensors(
@@ -119,6 +122,7 @@ export default function Charts() {
     )
 
   const onDragEnd = (event: DragEndEvent) => {
+    setIsDragging(false)
     const { active, over } = event
     if (over === null || active.id === over.id) return
     const from = panels.findIndex((panel) => panel.id === active.id)
@@ -152,6 +156,8 @@ export default function Charts() {
       <DndContext
         sensors={dndSensors}
         collisionDetection={closestCenter}
+        onDragStart={() => setIsDragging(true)}
+        onDragCancel={() => setIsDragging(false)}
         onDragEnd={onDragEnd}
       >
         <SortableContext
@@ -166,6 +172,7 @@ export default function Charts() {
                   devices={devices.data}
                   sensors={sensors.data ?? []}
                   dragHandle={handle}
+                  quiet={isDragging}
                   onChange={(patch) => patchPanel(panel.id, patch)}
                   onRemove={() =>
                     setDraft(panels.filter((entry) => entry.id !== panel.id))
@@ -241,6 +248,7 @@ function ChartPanelCard({
   devices,
   sensors,
   dragHandle,
+  quiet,
   onChange,
   onRemove,
 }: {
@@ -248,6 +256,7 @@ function ChartPanelCard({
   devices: Device[]
   sensors: Sensor[]
   dragHandle: ReactNode
+  quiet: boolean
   onChange: (patch: Partial<ChartPanel>) => void
   onRemove: () => void
 }) {
@@ -422,7 +431,12 @@ function ChartPanelCard({
       )}
 
       <Card>
-        {isCustom && !customValid ? (
+        {quiet ? (
+          <div
+            className="h-64 w-full rounded-xl bg-slate-800/40"
+            aria-hidden="true"
+          />
+        ) : isCustom && !customValid ? (
           <p className="py-10 text-center text-sm text-slate-400">
             Задайте корректный диапазон дат.
           </p>
