@@ -332,73 +332,81 @@ function ChartPanelCard({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center gap-2">
-        {dragHandle}
-        <select
-          value={selectedSource}
-          onChange={(event) => onChange({ source: event.target.value })}
-          className={`${selectClass} min-w-0 flex-1 sm:flex-none`}
-        >
-          {devices.map((device) => (
-            <option key={device.uuid} value={`device:${device.uuid}`}>
-              {device.name}
-            </option>
-          ))}
-          {sensors.map((sensor) => (
-            <option key={`s${sensor.id}`} value={`sensor:${sensor.id}`}>
-              Датчик · {sensor.name}
-            </option>
-          ))}
-        </select>
-        <select
-          value={activeMetric}
-          onChange={(event) => onChange({ metric: event.target.value })}
-          className={`${selectClass} min-w-0 flex-1 sm:flex-none`}
-        >
-          {metricOptions.map((entry) => (
-            <option key={entry.key} value={entry.key}>
-              {entry.label}
-            </option>
-          ))}
-        </select>
-        <div className="flex gap-1">
-          {PERIODS.map((entry) => (
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+        <div className="flex items-center gap-2">
+          {dragHandle}
+          <select
+            value={selectedSource}
+            onChange={(event) => onChange({ source: event.target.value })}
+            className={`${selectClass} min-w-0 flex-1 sm:flex-none`}
+          >
+            {devices.map((device) => (
+              <option key={device.uuid} value={`device:${device.uuid}`}>
+                {device.name}
+              </option>
+            ))}
+            {sensors.map((sensor) => (
+              <option key={`s${sensor.id}`} value={`sensor:${sensor.id}`}>
+                Датчик · {sensor.name}
+              </option>
+            ))}
+          </select>
+          <select
+            value={activeMetric}
+            onChange={(event) => onChange({ metric: event.target.value })}
+            className={`${selectClass} min-w-0 flex-1 sm:flex-none`}
+          >
+            {metricOptions.map((entry) => (
+              <option key={entry.key} value={entry.key}>
+                {entry.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="flex items-center gap-2 sm:flex-1">
+          <div className="flex gap-1">
+            {PERIODS.map((entry) => (
+              <button
+                key={entry.key}
+                type="button"
+                onClick={() =>
+                  onChange({
+                    period: entry.key,
+                    from_ts: undefined,
+                    to_ts: undefined,
+                  })
+                }
+                className={periodButton(panel.period === entry.key)}
+              >
+                {entry.label}
+              </button>
+            ))}
             <button
-              key={entry.key}
               type="button"
+              aria-label="свой диапазон"
+              title="Свой диапазон дат"
               onClick={() =>
-                onChange({ period: entry.key, from_ts: undefined, to_ts: undefined })
+                isCustom
+                  ? onChange({ period: '24h', from_ts: undefined, to_ts: undefined })
+                  : onChange({
+                      period: 'custom',
+                      from_ts: nowTs - 86_400,
+                      to_ts: nowTs,
+                    })
               }
-              className={periodButton(panel.period === entry.key)}
+              className={periodButton(isCustom)}
             >
-              {entry.label}
+              ⋯
             </button>
-          ))}
+          </div>
           <button
             type="button"
-            aria-label="свой диапазон"
-            title="Свой диапазон дат"
-            onClick={() =>
-              isCustom
-                ? onChange({ period: '24h', from_ts: undefined, to_ts: undefined })
-                : onChange({
-                    period: 'custom',
-                    from_ts: nowTs - 86_400,
-                    to_ts: nowTs,
-                  })
-            }
-            className={periodButton(isCustom)}
+            onClick={onRemove}
+            className="ml-auto text-sm text-slate-500 hover:text-rose-400"
           >
-            ⋯
+            убрать
           </button>
         </div>
-        <button
-          type="button"
-          onClick={onRemove}
-          className="ml-auto text-sm text-slate-500 hover:text-rose-400"
-        >
-          убрать
-        </button>
       </div>
 
       {isCustom && (
