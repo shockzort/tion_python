@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import {
   CartesianGrid,
   Line,
@@ -9,8 +9,15 @@ import {
   YAxis,
 } from 'recharts'
 
-import { useDevices, useSensors, useTelemetry } from '../api/queries'
-import { Card, Spinner } from '../components/ui'
+import {
+  useDevices,
+  usePref,
+  useSavePref,
+  useSensors,
+  useTelemetry,
+} from '../api/queries'
+import type { Device, Sensor } from '../api/types'
+import { Button, Card, Spinner } from '../components/ui'
 
 const DEVICE_METRICS = [
   { key: 'out_temp', label: 'После бризера, °C' },
@@ -33,15 +40,88 @@ const PERIODS = [
 
 type PeriodKey = (typeof PERIODS)[number]['key']
 
+/** Панель графика; состав панелей хранится на сервере (ключ prefs "charts"). */
+type ChartPanel = {
+  id: string
+  source: string // "device:{uuid}" | "sensor:{id}" | "" — первый доступный
+  metric: string
+  period: PeriodKey
+}
+
+const DEFAULT_PANEL: ChartPanel = {
+  id: 'default',
+  source: '',
+  metric: 'out_temp',
+  period: '24h',
+}
+
 export default function Charts() {
   const devices = useDevices()
   const sensors = useSensors()
-  // источник кодируется "device:{uuid}" | "sensor:{id}"
-  const [source, setSource] = useState('')
-  const [metric, setMetric] = useState('out_temp')
-  const [periodKey, setPeriodKey] = useState<PeriodKey>('24h')
+  const pref = usePref<ChartPanel[]>('charts')
+  const savePref = useSavePref<ChartPanel[]>('charts')
 
-  const period = PERIODS.find((p) => p.key === periodKey) ?? PERIODS[0]
+  if (devices.isPending || sensors.isPending || pref.isPending)
+    return <Spinner label="Загружаем графики…" />
+  if (devices.isError) {
+    return (
+      <p className="text-sm text-slate-400">
+        Графики появятся, когда будет хотя бы один бризер или датчик.
+      </p>
+    )
+  }
+
+  const panels =
+    pref.data !== null && pref.data !== undefined && pref.data.length > 0
+      ? pref.data
+      : [DEFAULT_PANEL]
+
+  const update = (next: ChartPanel[]) => savePref.mutate(next)
+  const patchPanel = (id: string, patch: Partial<ChartPanel>) =>
+    update(panels.map((panel) => (panel.id === id ? { ...panel, ...patch } : panel)))
+
+  return (
+    <div className="flex flex-col gap-4">
+      {panels.map((panel) => (
+        <ChartPanelCard
+          key={panel.id}
+          panel={panel}
+          devices={devices.data}
+          sensors={sensors.data ?? []}
+          onChange={(patch) => patchPanel(panel.id, patch)}
+          onRemove={
+            panels.length > 1
+              ? () => update(panels.filter((entry) => entry.id !== panel.id))
+              : null
+          }
+        />
+      ))}
+      <Button
+        variant="ghost"
+        onClick={() =>
+          update([...panels, { ...DEFAULT_PANEL, id: crypto.randomUUID() }])
+        }
+      >
+        + Добавить график
+      </Button>
+    </div>
+  )
+}
+
+function ChartPanelCard({
+  panel,
+  devices,
+  sensors,
+  onChange,
+  onRemove,
+}: {
+  panel: ChartPanel
+  devices: Device[]
+  sensors: Sensor[]
+  onChange: (patch: Partial<ChartPanel>) => void
+  onRemove: (() => void) | null
+}) {
+  const period = PERIODS.find((p) => p.key === panel.period) ?? PERIODS[0]
   // from округляется до минуты — ключ запроса стабилен между рендерами
   const fromTs = useMemo(
     () => Math.floor((Date.now() / 1000 - period.seconds) / 60) * 60,
@@ -49,19 +129,19 @@ export default function Charts() {
   )
 
   const fallbackSource =
-    devices.data?.[0] !== undefined
-      ? `device:${devices.data[0].uuid}`
-      : sensors.data?.[0] !== undefined
-        ? `sensor:${sensors.data[0].id}`
+    devices[0] !== undefined
+      ? `device:${devices[0].uuid}`
+      : sensors[0] !== undefined
+        ? `sensor:${sensors[0].id}`
         : ''
-  const selectedSource = source !== '' ? source : fallbackSource
+  const selectedSource = panel.source !== '' ? panel.source : fallbackSource
   const [sourceType, sourceId] = selectedSource.split(':', 2) as [
     'device' | 'sensor',
     string,
   ]
   const metricOptions = sourceType === 'sensor' ? SENSOR_METRICS : DEVICE_METRICS
-  const activeMetric = metricOptions.some((entry) => entry.key === metric)
-    ? metric
+  const activeMetric = metricOptions.some((entry) => entry.key === panel.metric)
+    ? panel.metric
     : metricOptions[0].key
 
   const series = useTelemetry({
@@ -72,9 +152,7 @@ export default function Charts() {
     from_ts: fromTs,
   })
 
-  if (devices.isPending || sensors.isPending)
-    return <Spinner label="Загружаем источники…" />
-  if (devices.isError || selectedSource === '') {
+  if (selectedSource === '') {
     return (
       <p className="text-sm text-slate-400">
         Графики появятся, когда будет хотя бы один бризер или датчик.
@@ -87,15 +165,15 @@ export default function Charts() {
       <div className="flex flex-wrap items-center gap-2">
         <select
           value={selectedSource}
-          onChange={(event) => setSource(event.target.value)}
+          onChange={(event) => onChange({ source: event.target.value })}
           className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm"
         >
-          {devices.data.map((device) => (
+          {devices.map((device) => (
             <option key={device.uuid} value={`device:${device.uuid}`}>
               {device.name}
             </option>
           ))}
-          {sensors.data?.map((sensor) => (
+          {sensors.map((sensor) => (
             <option key={`s${sensor.id}`} value={`sensor:${sensor.id}`}>
               Датчик · {sensor.name}
             </option>
@@ -103,7 +181,7 @@ export default function Charts() {
         </select>
         <select
           value={activeMetric}
-          onChange={(event) => setMetric(event.target.value)}
+          onChange={(event) => onChange({ metric: event.target.value })}
           className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm"
         >
           {metricOptions.map((entry) => (
@@ -117,9 +195,9 @@ export default function Charts() {
             <button
               key={entry.key}
               type="button"
-              onClick={() => setPeriodKey(entry.key)}
+              onClick={() => onChange({ period: entry.key })}
               className={`rounded-lg px-2.5 py-1.5 text-sm transition-colors ${
-                periodKey === entry.key
+                panel.period === entry.key
                   ? 'bg-sky-600 text-white'
                   : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
               }`}
@@ -128,6 +206,15 @@ export default function Charts() {
             </button>
           ))}
         </div>
+        {onRemove !== null && (
+          <button
+            type="button"
+            onClick={onRemove}
+            className="ml-auto text-sm text-slate-500 hover:text-rose-400"
+          >
+            убрать
+          </button>
+        )}
       </div>
 
       <Card>

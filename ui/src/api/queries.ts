@@ -39,6 +39,7 @@ export const keys = {
   sensors: ['sensors'] as const,
   triggers: ['triggers'] as const,
   telemetry: (params: Record<string, string>) => ['telemetry', params] as const,
+  pref: (key: string) => ['pref', key] as const,
 }
 
 // --- auth ------------------------------------------------------------------
@@ -433,6 +434,39 @@ export function useTelemetry(params: {
       api<TelemetrySeries>(`/api/telemetry?${new URLSearchParams(query)}`),
     enabled: params.source_id !== '',
     refetchInterval: 60_000,
+  })
+}
+
+// --- пользовательские предпочтения ----------------------------------------------
+
+type PrefEnvelope<T> = { key: string; value: T | null }
+
+/** Серверное per-user предпочтение (общее для всех устройств пользователя). */
+export function usePref<T>(key: string) {
+  return useQuery({
+    queryKey: keys.pref(key),
+    queryFn: () => api<PrefEnvelope<T>>(`/api/prefs/${key}`),
+    select: (data) => data.value,
+  })
+}
+
+/** Сохранение предпочтения с optimistic-обновлением и откатом по ошибке. */
+export function useSavePref<T>(key: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (value: T) =>
+      api<PrefEnvelope<T>>(`/api/prefs/${key}`, { method: 'PUT', json: { value } }),
+    onMutate: async (value) => {
+      await queryClient.cancelQueries({ queryKey: keys.pref(key) })
+      const previous = queryClient.getQueryData<PrefEnvelope<T>>(keys.pref(key))
+      queryClient.setQueryData<PrefEnvelope<T>>(keys.pref(key), { key, value })
+      return { previous }
+    },
+    onError: (_error, _value, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(keys.pref(key), context.previous)
+      }
+    },
   })
 }
 
