@@ -122,7 +122,9 @@ curl -LO https://github.com/fatedier/frp/releases/latest/download/frp_*_linux_am
 tar xzf frp_*.tar.gz && sudo cp frp_*/frps /usr/local/bin/
 sudo mkdir -p /etc/frp && sudo cp deploy/frp/frps.toml.example /etc/frp/frps.toml
 # в frps.toml задать auth.token (openssl rand -hex 16)
-sudo systemctl enable --now frps   # юнит по аналогии с deploy/frp/frpc.service
+# юнит: Type=simple, ExecStart=/usr/local/bin/frps -c /etc/frp/frps.toml,
+#       Restart=always, WantedBy=multi-user.target
+sudo systemctl enable --now frps
 ```
 
 Проверка TLS сразу после 1.4 (frpc ещё нет — ждём 502, но по HTTPS):
@@ -131,15 +133,16 @@ sudo systemctl enable --now frps   # юнит по аналогии с deploy/fr
 curl -sI https://<имя>.duckdns.org | head -1   # HTTP/2 502 — TLS работает
 ```
 
-## Шаг 2. Pi: frpc
+## Шаг 2. Целевой сервер: frpc
 
-```bash
-sudo cp frp_*/frpc /usr/local/bin/
-sudo mkdir -p /etc/frp && sudo cp deploy/frp/frpc.toml.example /etc/frp/frpc.toml
-# serverAddr = IP VPS, auth.token = тот же секрет
-sudo cp deploy/frp/frpc.service /etc/systemd/system/
-sudo systemctl enable --now frpc
-```
+На Pi frpc работает контейнером в составе `docker compose` (профиль
+`tunnel`, включён по умолчанию): `make provision` кладёт заготовку
+`/opt/easy-breezy/frpc.toml` — вписать `serverAddr` (IP VPS) и
+`auth.token` (тот же секрет); туннель поднимет ближайший
+`make deploy` (`deploy/ansible/README.md`).
+
+На стендовом ноутбуке frpc запускается хостовым бинарём —
+`docs/runbook.md`, раздел «Отладочный стенд MVP».
 
 Проверка сквозного пути: `curl https://<host>/api/system/health` → `{"status":"ok"}`.
 
