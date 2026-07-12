@@ -13,6 +13,7 @@ import {
   useSensors,
 } from '../api/queries'
 import DeviceCard from '../components/DeviceCard'
+import IntentBar from '../components/IntentBar'
 import SensorCard from '../components/SensorCard'
 import { Button, Spinner } from '../components/ui'
 
@@ -62,6 +63,8 @@ export default function Dashboard() {
 
   return (
     <div className="flex flex-col gap-3">
+      <IntentBar />
+
       <div className="flex items-center justify-between">
         <p className="text-sm text-slate-400">
           На связи {online} из {devices.data.length}

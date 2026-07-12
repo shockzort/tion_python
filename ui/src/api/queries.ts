@@ -437,6 +437,30 @@ export function useChangePassword() {
   })
 }
 
+// --- интенты ---------------------------------------------------------------------
+
+export type IntentReply = {
+  reply: string
+  executed: boolean
+  intent: string | null
+}
+
+export function useExecuteIntent() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (text: string) =>
+      api<IntentReply>('/api/intents/execute', {
+        method: 'POST',
+        json: { text },
+      }),
+    onSuccess: (result) => {
+      if (result.executed) {
+        void queryClient.invalidateQueries({ queryKey: keys.devices })
+      }
+    },
+  })
+}
+
 // --- мастер сопряжения -------------------------------------------------------
 
 export function useScanAir() {
