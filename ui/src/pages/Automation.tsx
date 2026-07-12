@@ -27,6 +27,9 @@ import type {
   Sensor,
   SensorMetric,
   Trigger,
+  TriggerKind,
+  TriggerTarget,
+  TriggerToggle,
 } from '../api/types'
 import { Badge, Button, Card, Spinner, Toggle } from '../components/ui'
 import { cronFromPreset, DAY_LABELS, describeCron, presetFromCron } from '../lib/cron'
@@ -167,7 +170,7 @@ type DeltaDraft = {
   light: '' | 'on' | 'off'
 }
 
-type ActionDraft = { target: string; delta: DeltaDraft }
+type ActionDraft = { target: string; delta: DeltaDraft; toggle: '' | 'on' | 'off' }
 
 const EMPTY_DELTA: DeltaDraft = {
   power: '',
@@ -178,8 +181,19 @@ const EMPTY_DELTA: DeltaDraft = {
   light: '',
 }
 
+function isTriggerToggle(delta: CommandBody | TriggerToggle): delta is TriggerToggle {
+  return 'enabled' in delta
+}
+
 function draftFromAction(action: ScenarioAction): ActionDraft {
-  const delta = action.delta
+  if (action.target_type === 'trigger' && isTriggerToggle(action.delta)) {
+    return {
+      target: `trigger:${action.target_id}`,
+      delta: EMPTY_DELTA,
+      toggle: action.delta.enabled ? 'on' : 'off',
+    }
+  }
+  const delta = action.delta as CommandBody
   const onOff = (value: boolean | undefined): '' | 'on' | 'off' =>
     value === undefined ? '' : value ? 'on' : 'off'
   return {
@@ -195,11 +209,22 @@ function draftFromAction(action: ScenarioAction): ActionDraft {
       sound: onOff(delta.sound),
       light: onOff(delta.light),
     },
+    toggle: '',
   }
 }
 
 function actionFromDraft(draft: ActionDraft): ScenarioAction | string {
   const [targetType, targetId] = draft.target.split(':', 2)
+  if (targetType === 'trigger') {
+    if (draft.toggle === '') {
+      return 'выберите: включить или выключить триггер'
+    }
+    return {
+      target_type: 'trigger',
+      target_id: Number(targetId),
+      delta: { enabled: draft.toggle === 'on' },
+    }
+  }
   if (targetType !== 'device' && targetType !== 'group') {
     return 'выберите цель действия'
   }
@@ -231,11 +256,12 @@ function ScenarioEditor({
 }) {
   const devices = useDevices()
   const groups = useGroups()
+  const triggers = useTriggers()
   const saveScenario = useSaveScenario()
   const [name, setName] = useState(scenario?.name ?? '')
   const [actions, setActions] = useState<ActionDraft[]>(
     scenario === null
-      ? [{ target: '', delta: EMPTY_DELTA }]
+      ? [{ target: '', delta: EMPTY_DELTA, toggle: '' }]
       : scenario.actions.map(draftFromAction),
   )
   const [error, setError] = useState<string | null>(null)
@@ -297,7 +323,7 @@ function ScenarioEditor({
               onChange={(event) => patchAction(index, { target: event.target.value })}
               className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm"
             >
-              <option value="">Цель: устройство или группа…</option>
+              <option value="">Цель: устройство, группа или триггер…</option>
               {groups.data?.map((group) => (
                 <option key={`g${group.id}`} value={`group:${group.id}`}>
                   Группа · {group.name}
@@ -306,6 +332,11 @@ function ScenarioEditor({
               {devices.data?.map((device) => (
                 <option key={device.uuid} value={`device:${device.uuid}`}>
                   {device.name}
+                </option>
+              ))}
+              {triggers.data?.map((trigger) => (
+                <option key={`t${trigger.id}`} value={`trigger:${trigger.id}`}>
+                  Триггер · {trigger.name}
                 </option>
               ))}
             </select>
@@ -319,6 +350,19 @@ function ScenarioEditor({
               убрать
             </button>
           </div>
+          {action.target.startsWith('trigger:') ? (
+            <DeltaSelect
+              label="Действие с триггером"
+              value={action.toggle}
+              options={[
+                ['on', 'включить'],
+                ['off', 'выключить'],
+              ]}
+              onChange={(toggle) =>
+                patchAction(index, { toggle: toggle as ActionDraft['toggle'] })
+              }
+            />
+          ) : (
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
             <DeltaSelect
               label="Питание"
@@ -382,13 +426,17 @@ function ScenarioEditor({
               }
             />
           </div>
+          )}
         </div>
       ))}
 
       <Button
         variant="ghost"
         onClick={() =>
-          setActions((current) => [...current, { target: '', delta: EMPTY_DELTA }])
+          setActions((current) => [
+            ...current,
+            { target: '', delta: EMPTY_DELTA, toggle: '' },
+          ])
         }
       >
         + Действие
@@ -736,14 +784,26 @@ function TriggersTab() {
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <p className="font-medium">{trigger.name}</p>
+              {trigger.kind === 'maintain' && <Badge tone="ok">поддержание</Badge>}
               {trigger.is_active && <Badge tone="warn">сработал</Badge>}
               {!trigger.enabled && <Badge tone="muted">выключен</Badge>}
             </div>
             <p className="truncate text-xs text-slate-400">
-              {sensorNames.get(trigger.sensor_id) ?? 'датчик'} ·{' '}
-              {METRIC_LABELS[trigger.metric]} {trigger.op} {trigger.threshold}
-              {trigger.enter_scenario_id !== null &&
-                ` → ${scenarioNames.get(trigger.enter_scenario_id) ?? 'сценарий'}`}
+              {trigger.kind === 'maintain' ? (
+                <>
+                  {sensorNames.get(trigger.sensor_id) ?? 'датчик'} · CO₂ ≈{' '}
+                  {trigger.threshold} ppm · скорость{' '}
+                  {trigger.speed_min === 0 ? 'выкл' : trigger.speed_min}–
+                  {trigger.speed_max}
+                </>
+              ) : (
+                <>
+                  {sensorNames.get(trigger.sensor_id) ?? 'датчик'} ·{' '}
+                  {METRIC_LABELS[trigger.metric]} {trigger.op} {trigger.threshold}
+                  {trigger.enter_scenario_id !== null &&
+                    ` → ${scenarioNames.get(trigger.enter_scenario_id) ?? 'сценарий'}`}
+                </>
+              )}
               {trigger.window_start !== null &&
                 ` · ${trigger.window_start}–${trigger.window_end}`}
             </p>
@@ -780,19 +840,26 @@ function TriggersTab() {
   )
 }
 
+/** Полное тело для PUT: ни одно поле не теряется (в т.ч. inline-действия). */
 function triggerToBody(trigger: Trigger): TriggerBody {
   return {
     name: trigger.name,
     sensor_id: trigger.sensor_id,
     metric: trigger.metric,
+    kind: trigger.kind,
     op: trigger.op,
     threshold: trigger.threshold,
     hysteresis: trigger.hysteresis,
     cooldown_s: trigger.cooldown_s,
     window_start: trigger.window_start,
     window_end: trigger.window_end,
+    speed_min: trigger.speed_min,
+    speed_max: trigger.speed_max,
+    targets: trigger.targets,
     enter_scenario_id: trigger.enter_scenario_id,
+    enter_actions: trigger.enter_actions,
     exit_scenario_id: trigger.exit_scenario_id,
+    exit_actions: trigger.exit_actions,
     enabled: trigger.enabled,
   }
 }
@@ -809,6 +876,10 @@ function TriggerEditor({
   onClose: () => void
 }) {
   const saveTrigger = useSaveTrigger()
+  const devices = useDevices()
+  const groups = useGroups()
+  const maintainInitial = trigger !== null && trigger.kind === 'maintain'
+  const [kind, setKind] = useState<TriggerKind>(trigger?.kind ?? 'threshold')
   const [name, setName] = useState(trigger?.name ?? '')
   const [sensorId, setSensorId] = useState(
     String(trigger?.sensor_id ?? sensors[0]?.id ?? ''),
@@ -816,9 +887,11 @@ function TriggerEditor({
   const [metric, setMetric] = useState<SensorMetric>(trigger?.metric ?? 'co2')
   const [op, setOp] = useState<'>' | '<'>(trigger?.op ?? '>')
   const [threshold, setThreshold] = useState(String(trigger?.threshold ?? 1000))
-  const [hysteresis, setHysteresis] = useState(String(trigger?.hysteresis ?? 200))
+  const [hysteresis, setHysteresis] = useState(
+    String(maintainInitial ? 200 : (trigger?.hysteresis ?? 200)),
+  )
   const [cooldownMin, setCooldownMin] = useState(
-    String(Math.round((trigger?.cooldown_s ?? 0) / 60)),
+    String(maintainInitial ? 0 : Math.round((trigger?.cooldown_s ?? 0) / 60)),
   )
   const [useWindow, setUseWindow] = useState(trigger?.window_start != null)
   const [windowStart, setWindowStart] = useState(trigger?.window_start ?? '08:00')
@@ -829,10 +902,30 @@ function TriggerEditor({
   const [exitScenario, setExitScenario] = useState(
     trigger?.exit_scenario_id != null ? String(trigger.exit_scenario_id) : '',
   )
+  // поля поддержания CO₂ (kind = maintain)
+  const [deadband, setDeadband] = useState(
+    String(maintainInitial ? (trigger?.hysteresis ?? 50) : 50),
+  )
+  const [maintainCooldownMin, setMaintainCooldownMin] = useState(
+    String(maintainInitial ? Math.round((trigger?.cooldown_s ?? 120) / 60) : 2),
+  )
+  const [speedMin, setSpeedMin] = useState(String(trigger?.speed_min ?? 1))
+  const [speedMax, setSpeedMax] = useState(String(trigger?.speed_max ?? 6))
+  const [targets, setTargets] = useState<string[]>(
+    (trigger?.targets ?? []).map((t) => `${t.target_type}:${t.target_id}`),
+  )
   const [error, setError] = useState<string | null>(null)
 
   const inputClass =
     'rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-slate-200'
+
+  const toggleTarget = (value: string) => {
+    setTargets((current) =>
+      current.includes(value)
+        ? current.filter((v) => v !== value)
+        : [...current, value],
+    )
+  }
 
   const save = async () => {
     setError(null)
@@ -840,34 +933,11 @@ function TriggerEditor({
       setError('дайте триггеру имя')
       return
     }
-    const parsedThreshold = Number(threshold)
-    const parsedHysteresis = Number(hysteresis)
-    const parsedCooldown = Number(cooldownMin)
-    if (!Number.isFinite(parsedThreshold)) {
-      setError('порог — число')
+    const body =
+      kind === 'maintain' ? buildMaintainBody() : buildThresholdBody()
+    if (typeof body === 'string') {
+      setError(body)
       return
-    }
-    if (!Number.isFinite(parsedHysteresis) || parsedHysteresis < 0) {
-      setError('гистерезис — неотрицательное число')
-      return
-    }
-    if (enterScenario === '' && exitScenario === '') {
-      setError('выберите сценарий на вход и/или на выход')
-      return
-    }
-    const body: TriggerBody = {
-      name: name.trim(),
-      sensor_id: Number(sensorId),
-      metric,
-      op,
-      threshold: parsedThreshold,
-      hysteresis: parsedHysteresis,
-      cooldown_s: Math.max(0, Math.round(parsedCooldown * 60)),
-      window_start: useWindow ? windowStart : null,
-      window_end: useWindow ? windowEnd : null,
-      enter_scenario_id: enterScenario === '' ? null : Number(enterScenario),
-      exit_scenario_id: exitScenario === '' ? null : Number(exitScenario),
-      enabled: trigger?.enabled ?? true,
     }
     try {
       await saveTrigger.mutateAsync({ id: trigger?.id, body })
@@ -877,15 +947,115 @@ function TriggerEditor({
     }
   }
 
+  const buildThresholdBody = (): TriggerBody | string => {
+    const parsedThreshold = Number(threshold)
+    const parsedHysteresis = Number(hysteresis)
+    const parsedCooldown = Number(cooldownMin)
+    if (!Number.isFinite(parsedThreshold)) return 'порог — число'
+    if (!Number.isFinite(parsedHysteresis) || parsedHysteresis < 0) {
+      return 'гистерезис — неотрицательное число'
+    }
+    // inline-действия (созданные через API) сохраняются, если сценарий не выбран
+    const enterActions = enterScenario === '' ? (trigger?.enter_actions ?? null) : null
+    const exitActions = exitScenario === '' ? (trigger?.exit_actions ?? null) : null
+    if (
+      enterScenario === '' &&
+      exitScenario === '' &&
+      enterActions === null &&
+      exitActions === null
+    ) {
+      return 'выберите сценарий на вход и/или на выход'
+    }
+    return {
+      name: name.trim(),
+      sensor_id: Number(sensorId),
+      metric,
+      kind: 'threshold',
+      op,
+      threshold: parsedThreshold,
+      hysteresis: parsedHysteresis,
+      cooldown_s: Math.max(0, Math.round(parsedCooldown * 60)),
+      window_start: useWindow ? windowStart : null,
+      window_end: useWindow ? windowEnd : null,
+      enter_scenario_id: enterScenario === '' ? null : Number(enterScenario),
+      enter_actions: enterActions,
+      exit_scenario_id: exitScenario === '' ? null : Number(exitScenario),
+      exit_actions: exitActions,
+      enabled: trigger?.enabled ?? true,
+    }
+  }
+
+  const buildMaintainBody = (): TriggerBody | string => {
+    const parsedTarget = Number(threshold)
+    const parsedDeadband = Number(deadband)
+    const parsedCooldown = Number(maintainCooldownMin)
+    const min = Number(speedMin)
+    const max = Number(speedMax)
+    if (!Number.isFinite(parsedTarget) || parsedTarget <= 0) {
+      return 'целевой CO₂ — положительное число'
+    }
+    if (!Number.isFinite(parsedDeadband) || parsedDeadband <= 0) {
+      return 'зона покоя — положительное число'
+    }
+    if (min > max) return 'минимальная скорость больше максимальной'
+    if (targets.length === 0) return 'выберите хотя бы одно устройство'
+    return {
+      name: name.trim(),
+      sensor_id: Number(sensorId),
+      metric: 'co2',
+      kind: 'maintain',
+      threshold: parsedTarget,
+      hysteresis: parsedDeadband,
+      cooldown_s: Math.max(0, Math.round(parsedCooldown * 60)),
+      window_start: useWindow ? windowStart : null,
+      window_end: useWindow ? windowEnd : null,
+      speed_min: min,
+      speed_max: max,
+      targets: targets.map((value): TriggerTarget => {
+        const [targetType, targetId] = value.split(':', 2)
+        return {
+          target_type: targetType as TriggerTarget['target_type'],
+          target_id: targetType === 'group' ? Number(targetId) : targetId,
+        }
+      }),
+      enabled: trigger?.enabled ?? true,
+    }
+  }
+
   return (
     <Card className="flex flex-col gap-3">
       <p className="font-medium">
         {trigger === null ? 'Новый триггер' : `Триггер «${trigger.name}»`}
       </p>
+      {trigger === null && (
+        <div className="flex gap-2">
+          <TabButton
+            active={kind === 'threshold'}
+            label="Порог"
+            onClick={() => setKind('threshold')}
+          />
+          <TabButton
+            active={kind === 'maintain'}
+            label="Поддержание CO₂"
+            onClick={() => setKind('maintain')}
+          />
+        </div>
+      )}
+      {kind === 'maintain' && (
+        <p className="text-xs text-slate-400">
+          Бризер сам подбирает скорость в заданном диапазоне, удерживая CO₂
+          около цели. Включение одного регулятора выключает другой на тех же
+          устройствах — ночной и дневной режимы удобно переключать сценариями.
+        </p>
+      )}
       <input
         value={name}
         onChange={(event) => setName(event.target.value)}
-        placeholder="Название (например, Душно в спальне)"
+        placeholder={
+          kind === 'maintain'
+            ? 'Название (например, Ночь · спальня)'
+            : 'Название (например, Душно в спальне)'
+        }
         className="rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm outline-none focus:border-sky-500"
       />
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
@@ -903,60 +1073,171 @@ function TriggerEditor({
             ))}
           </select>
         </label>
-        <label className="flex flex-col gap-1 text-xs text-slate-400">
-          Метрика
-          <select
-            value={metric}
-            onChange={(event) => setMetric(event.target.value as SensorMetric)}
-            className={inputClass}
-          >
-            {Object.entries(METRIC_LABELS).map(([key, label]) => (
-              <option key={key} value={key}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1 text-xs text-slate-400">
-          Условие входа
-          <div className="flex gap-1">
-            <select
-              value={op}
-              onChange={(event) => setOp(event.target.value as '>' | '<')}
-              className={inputClass}
-              aria-label="оператор"
-            >
-              <option value=">">&gt;</option>
-              <option value="<">&lt;</option>
-            </select>
-            <input
-              value={threshold}
-              onChange={(event) => setThreshold(event.target.value)}
-              inputMode="decimal"
-              className={`${inputClass} w-full`}
-              aria-label="порог"
-            />
-          </div>
-        </label>
-        <label className="flex flex-col gap-1 text-xs text-slate-400">
-          Гистерезис (выход)
-          <input
-            value={hysteresis}
-            onChange={(event) => setHysteresis(event.target.value)}
-            inputMode="decimal"
-            className={inputClass}
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-xs text-slate-400">
-          Кулдаун, мин
-          <input
-            value={cooldownMin}
-            onChange={(event) => setCooldownMin(event.target.value)}
-            inputMode="numeric"
-            className={inputClass}
-          />
-        </label>
+        {kind === 'threshold' ? (
+          <>
+            <label className="flex flex-col gap-1 text-xs text-slate-400">
+              Метрика
+              <select
+                value={metric}
+                onChange={(event) => setMetric(event.target.value as SensorMetric)}
+                className={inputClass}
+              >
+                {Object.entries(METRIC_LABELS).map(([key, label]) => (
+                  <option key={key} value={key}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-slate-400">
+              Условие входа
+              <div className="flex gap-1">
+                <select
+                  value={op}
+                  onChange={(event) => setOp(event.target.value as '>' | '<')}
+                  className={inputClass}
+                  aria-label="оператор"
+                >
+                  <option value=">">&gt;</option>
+                  <option value="<">&lt;</option>
+                </select>
+                <input
+                  value={threshold}
+                  onChange={(event) => setThreshold(event.target.value)}
+                  inputMode="decimal"
+                  className={`${inputClass} w-full`}
+                  aria-label="порог"
+                />
+              </div>
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-slate-400">
+              Гистерезис (выход)
+              <input
+                value={hysteresis}
+                onChange={(event) => setHysteresis(event.target.value)}
+                inputMode="decimal"
+                className={inputClass}
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-slate-400">
+              Кулдаун, мин
+              <input
+                value={cooldownMin}
+                onChange={(event) => setCooldownMin(event.target.value)}
+                inputMode="numeric"
+                className={inputClass}
+              />
+            </label>
+          </>
+        ) : (
+          <>
+            <label className="flex flex-col gap-1 text-xs text-slate-400">
+              Целевой CO₂, ppm
+              <input
+                value={threshold}
+                onChange={(event) => setThreshold(event.target.value)}
+                inputMode="numeric"
+                className={inputClass}
+                aria-label="целевой CO₂"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-slate-400">
+              Зона покоя, ppm
+              <input
+                value={deadband}
+                onChange={(event) => setDeadband(event.target.value)}
+                inputMode="numeric"
+                className={inputClass}
+                aria-label="зона покоя"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-slate-400">
+              Скорость от
+              <select
+                value={speedMin}
+                onChange={(event) => setSpeedMin(event.target.value)}
+                className={inputClass}
+                aria-label="минимальная скорость"
+              >
+                {['0', '1', '2', '3', '4', '5', '6'].map((v) => (
+                  <option key={v} value={v}>
+                    {v === '0' ? 'выкл' : v}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-slate-400">
+              Скорость до
+              <select
+                value={speedMax}
+                onChange={(event) => setSpeedMax(event.target.value)}
+                className={inputClass}
+                aria-label="максимальная скорость"
+              >
+                {['1', '2', '3', '4', '5', '6'].map((v) => (
+                  <option key={v} value={v}>
+                    {v}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-slate-400">
+              Кулдаун, мин
+              <input
+                value={maintainCooldownMin}
+                onChange={(event) => setMaintainCooldownMin(event.target.value)}
+                inputMode="numeric"
+                className={inputClass}
+                aria-label="кулдаун поддержания"
+              />
+            </label>
+          </>
+        )}
       </div>
+
+      {kind === 'maintain' && (
+        <div className="flex flex-col gap-1 text-xs text-slate-400">
+          Что регулируем
+          <div className="flex flex-wrap gap-1.5">
+            {groups.data?.map((group) => {
+              const value = `group:${group.id}`
+              const active = targets.includes(value)
+              return (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => toggleTarget(value)}
+                  className={`rounded-lg px-2.5 py-1.5 text-sm transition-colors ${
+                    active
+                      ? 'bg-sky-600 text-white'
+                      : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                  }`}
+                >
+                  Группа · {group.name}
+                </button>
+              )
+            })}
+            {devices.data?.map((device) => {
+              const value = `device:${device.uuid}`
+              const active = targets.includes(value)
+              return (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => toggleTarget(value)}
+                  className={`rounded-lg px-2.5 py-1.5 text-sm transition-colors ${
+                    active
+                      ? 'bg-sky-600 text-white'
+                      : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                  }`}
+                >
+                  {device.name}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       <Toggle label="Только в окне времени" checked={useWindow} onChange={setUseWindow} />
       {useWindow && (
@@ -979,38 +1260,40 @@ function TriggerEditor({
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-        <label className="flex flex-col gap-1 text-xs text-slate-400">
-          Сценарий при срабатывании
-          <select
-            value={enterScenario}
-            onChange={(event) => setEnterScenario(event.target.value)}
-            className={inputClass}
-          >
-            <option value="">— ничего</option>
-            {scenarios.map((scenario) => (
-              <option key={scenario.id} value={scenario.id}>
-                {scenario.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1 text-xs text-slate-400">
-          Сценарий при возврате к норме
-          <select
-            value={exitScenario}
-            onChange={(event) => setExitScenario(event.target.value)}
-            className={inputClass}
-          >
-            <option value="">— ничего</option>
-            {scenarios.map((scenario) => (
-              <option key={scenario.id} value={scenario.id}>
-                {scenario.name}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
+      {kind === 'threshold' && (
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <label className="flex flex-col gap-1 text-xs text-slate-400">
+            Сценарий при срабатывании
+            <select
+              value={enterScenario}
+              onChange={(event) => setEnterScenario(event.target.value)}
+              className={inputClass}
+            >
+              <option value="">— ничего</option>
+              {scenarios.map((scenario) => (
+                <option key={scenario.id} value={scenario.id}>
+                  {scenario.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1 text-xs text-slate-400">
+            Сценарий при возврате к норме
+            <select
+              value={exitScenario}
+              onChange={(event) => setExitScenario(event.target.value)}
+              className={inputClass}
+            >
+              <option value="">— ничего</option>
+              {scenarios.map((scenario) => (
+                <option key={scenario.id} value={scenario.id}>
+                  {scenario.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      )}
 
       {error !== null && <p className="text-sm text-rose-400">{error}</p>}
       <div className="flex gap-2">

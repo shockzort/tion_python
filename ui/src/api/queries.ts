@@ -23,6 +23,8 @@ import type {
   Sensor,
   TelemetrySeries,
   Trigger,
+  TriggerKind,
+  TriggerTarget,
   User,
 } from './types'
 
@@ -327,14 +329,20 @@ export type TriggerBody = {
   name: string
   sensor_id: number
   metric: 'co2' | 'temperature' | 'humidity'
-  op: '>' | '<'
+  kind?: TriggerKind
+  op?: '>' | '<'
   threshold: number
-  hysteresis: number
-  cooldown_s: number
+  hysteresis?: number
+  cooldown_s?: number
   window_start?: string | null
   window_end?: string | null
+  speed_min?: number | null
+  speed_max?: number | null
+  targets?: TriggerTarget[] | null
   enter_scenario_id?: number | null
+  enter_actions?: ScenarioAction[] | null
   exit_scenario_id?: number | null
+  exit_actions?: ScenarioAction[] | null
   enabled: boolean
 }
 

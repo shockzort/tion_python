@@ -59,10 +59,13 @@ export type FoundBreezer = {
   registered: boolean
 }
 
+/** Дельта действия над триггером: включить/выключить. */
+export type TriggerToggle = { enabled: boolean }
+
 export type ScenarioAction = {
-  target_type: 'device' | 'group'
+  target_type: 'device' | 'group' | 'trigger'
   target_id: string | number
-  delta: CommandBody
+  delta: CommandBody | TriggerToggle
 }
 
 export type Scenario = { id: number; name: string; actions: ScenarioAction[] }
@@ -95,17 +98,28 @@ export type Sensor = {
 
 export type SensorMetric = 'co2' | 'temperature' | 'humidity'
 
+export type TriggerKind = 'threshold' | 'maintain'
+
+export type TriggerTarget = {
+  target_type: 'device' | 'group'
+  target_id: string | number
+}
+
 export type Trigger = {
   id: number
   name: string
   sensor_id: number
   metric: SensorMetric
+  kind: TriggerKind
   op: '>' | '<'
   threshold: number
   hysteresis: number
   cooldown_s: number
   window_start: string | null
   window_end: string | null
+  speed_min: number | null
+  speed_max: number | null
+  targets: TriggerTarget[] | null
   enter_scenario_id: number | null
   enter_actions: ScenarioAction[] | null
   exit_scenario_id: number | null
