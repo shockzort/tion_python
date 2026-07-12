@@ -1,8 +1,14 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { ApiError } from '../api/client'
 import { useChangePassword, useMe } from '../api/queries'
-import { Button, Card } from '../components/ui'
+import { Button, Card, Toggle } from '../components/ui'
+import {
+  currentSubscription,
+  disablePush,
+  enablePush,
+  pushSupported,
+} from '../lib/push'
 
 export default function Settings() {
   const me = useMe()
@@ -12,8 +18,65 @@ export default function Settings() {
         <p className="text-sm text-slate-400">Пользователь</p>
         <p className="font-medium">{me.data?.username}</p>
       </Card>
+      <PushSection />
       <PasswordForm />
     </div>
+  )
+}
+
+function PushSection() {
+  const [enabled, setEnabled] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    void currentSubscription().then((subscription) =>
+      setEnabled(subscription !== null),
+    )
+  }, [])
+
+  const toggle = async (next: boolean) => {
+    setBusy(true)
+    setError(null)
+    try {
+      if (next) {
+        await enablePush()
+      } else {
+        await disablePush()
+      }
+      setEnabled(next)
+    } catch (exc) {
+      setError(exc instanceof Error ? exc.message : 'не получилось')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (!pushSupported()) {
+    return (
+      <Card>
+        <p className="font-medium">Уведомления</p>
+        <p className="mt-1 text-sm text-slate-500">
+          Браузер не поддерживает web push (нужен установленный PWA/Chrome).
+        </p>
+      </Card>
+    )
+  }
+
+  return (
+    <Card className="flex flex-col gap-2">
+      <p className="font-medium">Уведомления</p>
+      <p className="text-sm text-slate-500">
+        Пуш о сбоях: бризер офлайн дольше 10 минут, провал ночного бэкапа.
+      </p>
+      <Toggle
+        label="Присылать на это устройство"
+        checked={enabled}
+        disabled={busy}
+        onChange={(next) => void toggle(next)}
+      />
+      {error !== null && <p className="text-sm text-rose-400">{error}</p>}
+    </Card>
   )
 }
 

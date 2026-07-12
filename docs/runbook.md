@@ -75,6 +75,77 @@ CO₂-автоуправление откатывает mode/heater/temp в те
 Точный HCI-диагноз: `sudo btmon` во время попытки connect (нужен root; из-под
 инструментов без TTY sudo не аутентифицируется — запускать в своём терминале).
 
-## Установка на Raspberry Pi
+## Установка на Raspberry Pi (bare systemd — основной путь)
 
-Появится в Фазе 4 (systemd + frp + nginx); заготовки юнитов — `deploy/`.
+```bash
+# 1. Код и зависимости (сборка UI — на dev-машине, на Pi едет готовый dist)
+sudo git clone <репозиторий> /opt/easy-breezy
+cd /opt/easy-breezy/server && uv sync --no-dev
+# ui/dist скопировать с dev-машины (make build-ui там)
+
+# 2. Конфигурация
+cp /opt/easy-breezy/server/.env.example /opt/easy-breezy/.env  # и заполнить
+sudo useradd -r -G bluetooth breezy && sudo chown -R breezy: /opt/easy-breezy
+
+# 3. Сервис (Type=notify + WatchdogSec=60 — зависание лечит systemd)
+sudo cp deploy/systemd/easy-breezy.service /etc/systemd/system/
+sudo systemctl enable --now easy-breezy
+journalctl -u easy-breezy -f   # setup-токен первого старта — здесь
+
+# 4. Туннель наружу (VPS уже настроен, docs/yandex-setup.md)
+sudo cp deploy/frp/frpc.service /etc/systemd/system/ && sudo systemctl enable --now frpc
+```
+
+Бонды BLE живут per-host: после переезда с ноутбука на Pi бризеры
+сопрячь заново из мастера UI (кнопка на бризере ~5 с до синего мигания).
+
+## Бэкапы и восстановление (NFR-7)
+
+Автоматика: ежедневно в 03:30 локальной TZ сервис делает `VACUUM INTO`
++ gzip в `data/backups/easy_breezy-YYYYMMDD-HHMMSS.db.gz`, хранит 7 штук;
+провал уходит web push'ем и в лог (`backup_failed`).
+
+Ручной снапшот (сервис можно не останавливать — WAL):
+
+```bash
+sqlite3 data/easy_breezy.db "VACUUM INTO 'data/backups/manual.db'" && gzip data/backups/manual.db
+```
+
+Восстановление:
+
+```bash
+sudo systemctl stop easy-breezy
+gunzip -c data/backups/easy_breezy-<дата>.db.gz > data/easy_breezy.db
+rm -f data/easy_breezy.db-wal data/easy_breezy.db-shm
+sudo systemctl start easy-breezy   # миграции докатятся сами
+```
+
+Проверенная процедура — тест `test_backup_and_restore_roundtrip`.
+
+## Watchdog и самолечение BLE (NFR-4)
+
+- Все сопряжённые бризеры офлайн > 10 мин → сервис делает power-cycle
+  BLE-адаптера (BlueZ D-Bus, `ble_adapter_power_cycled` в логе).
+- Ещё 10 мин тишины → сервис завершает себя (`watchdog_restart_service`),
+  systemd поднимает заново (`Restart=always`).
+- Зависание event loop ловит systemd: `WatchdogSec=60` без пингов
+  `WATCHDOG=1` → SIGABRT → рестарт.
+- Ручная эскалация, если адаптер не ожил и после рестарта:
+  `sudo btmgmt power off && sudo btmgmt power on` (полный сброс контроллера,
+  Powered-цикл BlueZ его не делает), дальше — reboot хоста.
+
+## Уведомления (web push)
+
+Включаются на каждом устройстве отдельно: Настройки → «Уведомления»
+(нужен установленный PWA или Chrome; iOS Safari — только PWA с экрана
+«Домой»). VAPID-ключи генерируются в `data/vapid_private.pem` при первом
+старте; `EB_PUSH_CONTACT` — контакт для пуш-сервисов (https-URL или mailto).
+
+## Обновление версии
+
+```bash
+cd /opt/easy-breezy && sudo -u breezy git pull
+cd server && uv sync --no-dev          # если менялись зависимости
+# ui/dist обновить с dev-машины при изменениях UI
+sudo systemctl restart easy-breezy     # миграции применятся на старте
+```

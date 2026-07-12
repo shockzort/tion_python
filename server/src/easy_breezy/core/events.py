@@ -23,6 +23,8 @@ TOPIC_COMMAND_FINISHED = "command.finished"
 TOPIC_PAIRING_PROGRESS = "pairing.progress"
 TOPIC_SENSOR_UPDATED = "sensor.updated"
 TOPIC_AUTOMATION_CHANGED = "automation.changed"
+TOPIC_BACKUP_FINISHED = "backup.finished"
+TOPIC_BACKUP_FAILED = "backup.failed"
 
 
 @dataclass(frozen=True, slots=True)

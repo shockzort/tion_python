@@ -9,9 +9,9 @@ dev:
 dev-ui:
 	cd ui && npm run dev
 
-# Все тесты: сервер (pytest) + UI (vitest)
+# Все тесты: сервер (pytest, гейт покрытия ≥80 %) + UI (vitest)
 test:
-	cd server && uv run pytest
+	cd server && uv run pytest --cov --cov-report=term-missing:skip-covered --cov-fail-under=80
 	cd ui && npm run test
 
 # Линтеры и типы: сервер + UI

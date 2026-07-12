@@ -28,3 +28,8 @@ backups/
 .idea/
 .aider*
 .DS_Store
+mobile/android.keystore
+mobile/keystore.properties
+mobile/app/
+mobile/build/
+mobile/.gradle/
