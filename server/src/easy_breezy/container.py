@@ -29,15 +29,19 @@ from easy_breezy.core.pairing import (
     FakePairingService,
     PairingService,
 )
+from easy_breezy.core.push import PushService
 from easy_breezy.core.registry import DeviceRegistry
+from easy_breezy.core.sdnotify import READY, sd_notify
 from easy_breezy.core.sensors import SensorIngest
 from easy_breezy.core.state import StateCache
 from easy_breezy.core.telemetry import TelemetryService
+from easy_breezy.core.watchdog import BleWatchdog
 from easy_breezy.integrations.intents.service import IntentService
 from easy_breezy.integrations.magicair.client import MagicAirPoller
 from easy_breezy.integrations.mqtt.client import MqttIngest
 from easy_breezy.integrations.yandex.callbacks import YandexNotifier
 from easy_breezy.storage import Database
+from easy_breezy.storage.backup import BackupService
 from easy_breezy.storage.repos import DeviceRepo
 
 
@@ -61,6 +65,9 @@ class AppContainer:
     magicair: MagicAirPoller
     mqtt: MqttIngest
     intents: IntentService
+    backup: BackupService
+    watchdog: BleWatchdog
+    push: PushService
     ws_connections: set[Any] = field(default_factory=set)
     """Живые WebSocket-клиенты (для /api/system/stats)."""
 
@@ -78,9 +85,16 @@ class AppContainer:
         await self.triggers.start()
         await self.magicair.start()
         await self.mqtt.start()
+        await self.push.start()
+        await self.backup.start()
+        await self.watchdog.start()
         await self.auth.ensure_setup_token()
+        sd_notify(READY)  # Type=notify: сервис готов принимать запросы
 
     async def shutdown(self) -> None:
+        await self.watchdog.stop()
+        await self.backup.stop()
+        await self.push.stop()
         await self.mqtt.stop()
         await self.magicair.stop()
         await self.triggers.stop()
@@ -138,6 +152,16 @@ def build_container(settings: Settings) -> AppContainer:
         scenarios,
         command_wait_seconds=settings.command_wait_seconds,
     )
+    backup = BackupService(db, events, settings.data_dir, clock, tz=tz)
+    watchdog = BleWatchdog(registry.connections, clock)
+    push = PushService(
+        db,
+        events,
+        registry.connections,
+        settings.data_dir,
+        clock,
+        contact=settings.push_contact,
+    )
     return AppContainer(
         settings=settings,
         db=db,
@@ -157,6 +181,9 @@ def build_container(settings: Settings) -> AppContainer:
         magicair=magicair,
         mqtt=mqtt,
         intents=intents,
+        backup=backup,
+        watchdog=watchdog,
+        push=push,
     )
 
 

@@ -11,6 +11,10 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
+      // свой SW: precache + web push (FR-32)
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'sw.ts',
       includeAssets: ['favicon.svg'],
       manifest: {
         name: 'Easy Breezy',
@@ -32,10 +36,6 @@ export default defineConfig({
             purpose: 'maskable',
           },
         ],
-      },
-      workbox: {
-        // app-shell кешируется; данные всегда с сервера
-        navigateFallbackDenylist: [/^\/api\//, /^\/v1\.0\//, /^\/oauth\//, /^\/ws/],
       },
     }),
   ],

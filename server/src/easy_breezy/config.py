@@ -53,6 +53,8 @@ class Settings(BaseSettings):
     """Учётка приложения Tion MagicAir (облачный опрос CO₂-датчиков)."""
     mqtt_url: str | None = None
     """Брокер сторонних датчиков: mqtt://[user:pass@]host[:1883]."""
+    push_contact: str = "https://easy-breezy.duckdns.org"
+    """VAPID sub-claim (контакт для пуш-сервисов): https-URL или mailto:."""
     command_wait_seconds: float = 5.0
     """Сколько REST ждёт итог команды синхронно (иначе 202 + WS)."""
     session_ttl_days: int = 30

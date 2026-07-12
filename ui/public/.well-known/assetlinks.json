@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "org.duckdns.easybreezy",
+      "sha256_cert_fingerprints": [
+        "9A:E3:E0:7C:21:1A:5B:50:A2:4E:AC:2D:1D:C4:D8:CA:0B:45:F6:76:0B:62:6B:A5:13:0A:58:E9:45:C2:EA:37"
+      ]
+    }
+  }
+]
