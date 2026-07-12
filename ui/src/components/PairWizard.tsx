@@ -65,7 +65,7 @@ export default function PairWizard({ onClose }: { onClose: () => void }) {
 
   return (
     <div
-      className="fixed inset-0 z-20 flex items-end justify-center bg-black/60 p-4 sm:items-center"
+      className="fixed inset-0 z-20 flex items-end justify-center bg-black/85 p-4 backdrop-blur-sm sm:items-center"
       role="dialog"
       aria-label="Мастер сопряжения"
     >
