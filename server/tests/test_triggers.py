@@ -144,8 +144,16 @@ async def engine_env(
             kind="mqtt", name="CO₂ спальня", source_key="home/air"
         )
         sensor_id = sensor.id
-    scenarios = ScenarioService(core.db, core.bus)
-    engine = TriggerEngine(core.db, scenarios, core.events, clock, tz=MSK)
+    scenarios = ScenarioService(core.db, core.bus, core.events)
+    engine = TriggerEngine(
+        core.db,
+        scenarios,
+        core.events,
+        clock,
+        cache=core.cache,
+        holds=core.holds,
+        tz=MSK,
+    )
     return engine, ingest, device, sensor_id
 
 

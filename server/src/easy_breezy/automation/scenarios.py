@@ -5,25 +5,35 @@
 дельты одного устройства мержатся в порядке списка (позднее действие
 переопределяет поля раннего) — одна команда на устройство, поля не теряются
 (FR-5). Приоритет и hold-политику решает шина по источнику/приоритету.
+
+Третий вид цели — триггер (``target_type="trigger"``, дельта
+``{"enabled": bool}``): сценарий включает/выключает триггеры, что даёт
+композицию «Расписание → Сценарий → Триггер» (ночной режим включает
+свой maintain-триггер, дневной — свой). Рекурсия невозможна: включение
+лишь взводит оценку будущих измерений датчика, синхронно ничего не
+запускает. Toggles применяются ДО постановки device-команд.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import structlog
 
+from easy_breezy.automation.maintain import KIND_MAINTAIN, disable_conflicting_maintain
 from easy_breezy.core.bus import CommandBus, CommandError, CommandTicket
+from easy_breezy.core.events import TOPIC_AUTOMATION_CHANGED, EventBus
 from easy_breezy.core.model import DeltaError, StateDelta
 from easy_breezy.storage import Database
 from easy_breezy.storage.models import CommandSource
-from easy_breezy.storage.repos import GroupRepo, ScenarioRepo
+from easy_breezy.storage.repos import GroupRepo, ScenarioRepo, TriggerRepo
 
 log = structlog.get_logger(__name__)
 
 TARGET_DEVICE = "device"
 TARGET_GROUP = "group"
+TARGET_TRIGGER = "trigger"
 
 
 class ScenarioError(Exception):
@@ -43,10 +53,19 @@ class ActionSubmission:
     rejected: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class _ResolvedActions:
+    """Разложенные действия: per-device дельты + переключения триггеров."""
+
+    deltas: dict[str, StateDelta] = field(default_factory=dict)
+    toggles: list[tuple[int, bool]] = field(default_factory=list)
+
+
 class ScenarioService:
-    def __init__(self, db: Database, bus: CommandBus) -> None:
+    def __init__(self, db: Database, bus: CommandBus, events: EventBus) -> None:
         self._db = db
         self._bus = bus
+        self._events = events
 
     async def run(
         self,
@@ -83,9 +102,11 @@ class ScenarioService:
         priority: int | None = None,
     ) -> list[ActionSubmission]:
         """Исполняет список действий (сценарий или inline-действия расписания)."""
-        deltas = await self._resolve(actions)
+        resolved = await self._resolve(actions)
+        if resolved.toggles:
+            await self._apply_trigger_toggles(resolved.toggles)
         submissions: list[ActionSubmission] = []
-        for device_uuid, delta in deltas.items():
+        for device_uuid, delta in resolved.deltas.items():
             try:
                 ticket = await self._bus.submit(
                     device_uuid=device_uuid,
@@ -105,9 +126,10 @@ class ScenarioService:
                 submissions.append(ActionSubmission(device_uuid, ticket=ticket))
         return submissions
 
-    async def _resolve(self, actions: list[Any]) -> dict[str, StateDelta]:
-        """Раскладывает действия в per-device дельты с мержем по порядку."""
+    async def _resolve(self, actions: list[Any]) -> _ResolvedActions:
+        """Раскладывает действия в per-device дельты (мерж по порядку) и toggles."""
         merged: dict[str, dict[str, Any]] = {}
+        toggles: list[tuple[int, bool]] = []
         async with self._db.session() as session:
             groups = GroupRepo(session)
             for index, action in enumerate(actions):
@@ -118,6 +140,15 @@ class ScenarioService:
                 payload = action.get("delta")
                 if target_id is None or not isinstance(payload, dict):
                     raise ScenarioError(f"действие {index}: нет target_id или delta")
+                if target_type == TARGET_TRIGGER:
+                    enabled = payload.get("enabled")
+                    if not isinstance(enabled, bool):
+                        raise ScenarioError(
+                            f"действие {index}: для триггера delta —"
+                            " {'enabled': bool}"
+                        )
+                    toggles.append((int(target_id), enabled))
+                    continue
                 if target_type == TARGET_DEVICE:
                     device_uuids = [str(target_id)]
                 elif target_type == TARGET_GROUP:
@@ -133,9 +164,46 @@ class ScenarioService:
                 for device_uuid in device_uuids:
                     merged.setdefault(device_uuid, {}).update(payload)
         try:
-            return {
+            deltas = {
                 device_uuid: StateDelta.from_payload(payload)
                 for device_uuid, payload in merged.items()
             }
         except DeltaError as exc:
             raise ScenarioError(str(exc)) from exc
+        return _ResolvedActions(deltas=deltas, toggles=toggles)
+
+    async def _apply_trigger_toggles(self, toggles: list[tuple[int, bool]]) -> None:
+        """Включает/выключает триггеры; защёлка сбрасывается без exit-действий.
+
+        Включение обнуляет ``last_fired_at`` (реакция на следующее же
+        измерение) и снимает конфликтующие maintain-триггеры
+        (радиокнопочная семантика). Отсутствующий триггер — warning,
+        остальные действия сценария исполняются.
+        """
+        changed: list[int] = []
+        async with self._db.session() as session:
+            repo = TriggerRepo(session)
+            for trigger_id, enabled in toggles:
+                trigger = await repo.get(trigger_id)
+                if trigger is None:
+                    log.warning("scenario_trigger_missing", trigger_id=trigger_id)
+                    continue
+                trigger.enabled = enabled
+                trigger.is_active = False
+                if enabled:
+                    trigger.last_fired_at = None
+                    if trigger.kind == KIND_MAINTAIN:
+                        changed.extend(
+                            await disable_conflicting_maintain(session, trigger)
+                        )
+                changed.append(trigger_id)
+                log.info(
+                    "scenario_trigger_toggled",
+                    trigger_id=trigger_id,
+                    enabled=enabled,
+                )
+        for trigger_id in changed:
+            self._events.publish(
+                TOPIC_AUTOMATION_CHANGED,
+                {"kind": "trigger", "action": "updated", "id": trigger_id},
+            )

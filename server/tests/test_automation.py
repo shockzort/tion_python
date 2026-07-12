@@ -50,7 +50,7 @@ START = msk(2026, 7, 12, 22, 59)
 @pytest.fixture
 async def automation(core: CoreEnv) -> AutomationEnv:
     clock = FakeClock(START)
-    scenarios = ScenarioService(core.db, core.bus)
+    scenarios = ScenarioService(core.db, core.bus, core.events)
     scheduler = SchedulerService(core.db, scenarios, core.events, clock, tz=MSK)
     return AutomationEnv(scenarios, scheduler, clock)
 

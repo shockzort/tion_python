@@ -235,7 +235,7 @@ async def intent_env(core: CoreEnv) -> IntentService:
         core.registry,
         core.cache,
         core.bus,
-        ScenarioService(core.db, core.bus),
+        ScenarioService(core.db, core.bus, core.events),
         command_wait_seconds=5.0,
     )
 

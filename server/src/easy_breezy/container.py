@@ -132,12 +132,14 @@ def build_container(settings: Settings) -> AppContainer:
         skill_id=settings.yandex_skill_id,
         callback_token=settings.yandex_callback_token,
     )
-    scenarios = ScenarioService(db, bus)
+    scenarios = ScenarioService(db, bus, events)
     clock = SystemClock()
     tz = resolve_timezone(settings.timezone)
     scheduler = SchedulerService(db, scenarios, events, clock, tz=tz)
     sensors = SensorIngest(db, events)
-    triggers = TriggerEngine(db, scenarios, events, clock, tz=tz)
+    triggers = TriggerEngine(
+        db, scenarios, events, clock, cache=cache, holds=holds, tz=tz
+    )
     magicair = MagicAirPoller(
         sensors,
         email=settings.magicair_email,
