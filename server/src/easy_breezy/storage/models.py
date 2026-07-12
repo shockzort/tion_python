@@ -153,6 +153,16 @@ class Schedule(Base):
 
 
 class Trigger(Base):
+    """Триггер автоматизации; поведение определяет ``kind``.
+
+    ``threshold`` — пороговая защёлка (enter/exit по ``op``/``threshold``).
+    ``maintain`` — поддержание CO₂: ``threshold`` = целевой ppm,
+    ``hysteresis`` = зона покоя, ``cooldown_s`` = минимум секунд между
+    корректировками, ``last_fired_at`` = время последней корректировки;
+    ``op``/``enter_*``/``exit_*``/``is_active`` не используются
+    (``op`` хранится как ``>`` для NOT NULL).
+    """
+
     __tablename__ = "triggers"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -163,6 +173,14 @@ class Trigger(Base):
     threshold: Mapped[float]
     hysteresis: Mapped[float] = mapped_column(default=0.0)
     cooldown_s: Mapped[int] = mapped_column(default=0)
+    kind: Mapped[str] = mapped_column(String(20), default="threshold")
+    """threshold — защёлка по порогу; maintain — поддержание CO₂ у цели."""
+    speed_min: Mapped[int | None] = mapped_column(default=None)
+    """Нижняя граница диапазона (0 — регулятору разрешено выключать бризер)."""
+    speed_max: Mapped[int | None] = mapped_column(default=None)
+    """Верхняя граница диапазона скоростей (1..6), только для maintain."""
+    targets: Mapped[list[Any] | None] = mapped_column(default=None)
+    """Цели регулирования maintain: [{target_type: device|group, target_id}]."""
     window_start: Mapped[str | None] = mapped_column(String(5), default=None)
     window_end: Mapped[str | None] = mapped_column(String(5), default=None)
     enter_scenario_id: Mapped[int | None] = mapped_column(

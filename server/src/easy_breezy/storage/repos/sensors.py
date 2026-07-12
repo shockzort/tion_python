@@ -62,5 +62,14 @@ class TriggerRepo:
         )
         return list(result.scalars())
 
+    async def list_enabled_maintain(self) -> list[Trigger]:
+        """Включённые maintain-триггеры (для поиска конфликтов по целям)."""
+        result = await self._session.execute(
+            select(Trigger)
+            .where(Trigger.enabled, Trigger.kind == "maintain")
+            .order_by(Trigger.id)
+        )
+        return list(result.scalars())
+
     async def delete(self, trigger: Trigger) -> None:
         await self._session.delete(trigger)
