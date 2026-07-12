@@ -1,6 +1,6 @@
 [project]
 name = "easy-breezy"
-version = "0.2.1"
+version = "0.2.2"
 description = "Локальный сервис управления бризерами Tion: BLE, Умный дом Яндекса, PWA, автоматизация"
 requires-python = ">=3.12"
 dependencies = [
