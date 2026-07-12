@@ -157,7 +157,7 @@ function FanSlider({
   }
 
   return (
-    <label className="mt-1 flex items-center gap-3 text-sm text-slate-200">
+    <label className="mt-2 flex items-center gap-3 text-sm text-slate-200">
       <span className="shrink-0">Скорость</span>
       <input
         type="range"

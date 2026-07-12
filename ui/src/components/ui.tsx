@@ -80,7 +80,13 @@ export function Spinner({ label }: { label?: string }) {
   )
 }
 
-/** Переключатель-строка: подпись слева, свитч справа. */
+/** Переключатель-строка: подпись слева, свитч справа.
+
+Обёртка — div, не label: label пересылает клик по всей строке (включая
+текст и пустое место) вложенной кнопке, из-за чего промах пальцем мимо
+соседнего контрола дёргал свитч (полевой баг: выключение бризера при
+захвате ползунка скорости). Кликабелен только сам свитч.
+*/
 export function Toggle({
   label,
   checked,
@@ -93,7 +99,7 @@ export function Toggle({
   disabled?: boolean
 }) {
   return (
-    <label
+    <div
       className={`flex items-center justify-between gap-3 py-1 text-sm ${
         disabled ? 'text-slate-500' : 'text-slate-200'
       }`}
@@ -116,6 +122,6 @@ export function Toggle({
           }`}
         />
       </button>
-    </label>
+    </div>
   )
 }

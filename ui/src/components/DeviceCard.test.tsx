@@ -59,6 +59,22 @@ describe('DeviceCard', () => {
     expect(onCommand).toHaveBeenCalledWith({ power: false })
   })
 
+  it('клик по подписи свитча НЕ шлёт команду (полевой баг: промах мимо ползунка)', () => {
+    const onCommand = vi.fn()
+    render(
+      <DeviceCard
+        device={onlineDevice}
+        onCommand={onCommand}
+        onReleaseHold={vi.fn()}
+      />,
+    )
+    // раньше label пересылал клик по строке вложенной кнопке-свитчу —
+    // случайное касание рядом со слайдером выключало бризер
+    fireEvent.click(screen.getByText('Включён'))
+    fireEvent.click(screen.getByText('Подсветка'))
+    expect(onCommand).not.toHaveBeenCalled()
+  })
+
   it('слайдер шлёт скорость при отпускании, а не при каждом движении', () => {
     const onCommand = vi.fn()
     render(
