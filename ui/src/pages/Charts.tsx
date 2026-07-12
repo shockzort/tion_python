@@ -328,7 +328,7 @@ function ChartPanelCard({
         <select
           value={selectedSource}
           onChange={(event) => onChange({ source: event.target.value })}
-          className={selectClass}
+          className={`${selectClass} min-w-0 flex-1 sm:flex-none`}
         >
           {devices.map((device) => (
             <option key={device.uuid} value={`device:${device.uuid}`}>
@@ -344,7 +344,7 @@ function ChartPanelCard({
         <select
           value={activeMetric}
           onChange={(event) => onChange({ metric: event.target.value })}
-          className={selectClass}
+          className={`${selectClass} min-w-0 flex-1 sm:flex-none`}
         >
           {metricOptions.map((entry) => (
             <option key={entry.key} value={entry.key}>
