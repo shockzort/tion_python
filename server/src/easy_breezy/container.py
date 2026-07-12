@@ -33,6 +33,7 @@ from easy_breezy.core.registry import DeviceRegistry
 from easy_breezy.core.sensors import SensorIngest
 from easy_breezy.core.state import StateCache
 from easy_breezy.core.telemetry import TelemetryService
+from easy_breezy.integrations.intents.service import IntentService
 from easy_breezy.integrations.magicair.client import MagicAirPoller
 from easy_breezy.integrations.mqtt.client import MqttIngest
 from easy_breezy.integrations.yandex.callbacks import YandexNotifier
@@ -59,6 +60,7 @@ class AppContainer:
     triggers: TriggerEngine
     magicair: MagicAirPoller
     mqtt: MqttIngest
+    intents: IntentService
     ws_connections: set[Any] = field(default_factory=set)
     """Живые WebSocket-клиенты (для /api/system/stats)."""
 
@@ -128,6 +130,14 @@ def build_container(settings: Settings) -> AppContainer:
         password=settings.magicair_password,
     )
     mqtt = MqttIngest(db, sensors, events, url=settings.mqtt_url)
+    intents = IntentService(
+        db,
+        registry,
+        cache,
+        bus,
+        scenarios,
+        command_wait_seconds=settings.command_wait_seconds,
+    )
     return AppContainer(
         settings=settings,
         db=db,
@@ -146,6 +156,7 @@ def build_container(settings: Settings) -> AppContainer:
         triggers=triggers,
         magicair=magicair,
         mqtt=mqtt,
+        intents=intents,
     )
 
 
