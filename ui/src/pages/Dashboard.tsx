@@ -75,7 +75,7 @@ export default function Dashboard() {
       </div>
 
       {scenarios.data !== undefined && scenarios.data.length > 0 && (
-        <div className="flex flex-wrap gap-2">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
           {scenarios.data.map((scenario) => {
             const running =
               runScenario.isPending && runScenario.variables === scenario.id
