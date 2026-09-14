@@ -1,0 +1,15 @@
+# Раз в сутки (пара к easy-breezy-cert-sync.service). Серт живёт 90 дней и
+# продлевается на VPS за 30 до конца — суточного шага с запасом хватает,
+# Persistent=true догоняет пропуски, если NUC был выключен.
+
+[Unit]
+Description=Easy Breezy — таймер доставки TLS-сертификата
+
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=1h
+Persistent=true
+AccuracySec=1h
+
+[Install]
+WantedBy=timers.target

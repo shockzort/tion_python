@@ -1,0 +1,12 @@
+# Доставка TLS-сертификата с VPS на NUC (запускает easy-breezy-cert-sync.timer).
+# Настройки перекрываются в /opt/easy-breezy/cert-sync.env (файл необязателен).
+
+[Unit]
+Description=Easy Breezy — доставка TLS-сертификата с VPS
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/opt/easy-breezy/cert-sync.env
+ExecStart=/usr/local/bin/eb-cert-sync.sh

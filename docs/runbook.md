@@ -30,6 +30,23 @@ api-токен (`POST /api/tokens`) с `Authorization: Bearer`.
 Внешний доступ: `https://easy-breezy.duckdns.org` → VPS `195.133.20.205`
 (nginx TLS + frps, юниты systemd) → frpc-контейнер на NUC → сервис :8000.
 
+Локальный доступ: тот же домен, но прямо в NUC — nginx-контейнер (профиль
+`lan`) слушает 443 с копией боевого серта. Работает, пока жива LAN, даже
+без интернета. Условие — статическая DNS-запись `easy-breezy.duckdns.org`
+→ IP NUC на том устройстве, которое раздаёт DNS телефонам (домашние
+клиенты приходят NAT'ом от `192.168.88.3`, то есть DNS у них оттуда же).
+Проверка: `curl --resolve easy-breezy.duckdns.org:443:192.168.88.248
+https://easy-breezy.duckdns.org/api/system/health`. Настройка с нуля —
+`deploy/ansible/README.md`, раздел «LAN без интернета».
+
+- Серт: выпускает и продлевает certbot на VPS, NUC забирает копию суточным
+  таймером `easy-breezy-cert-sync.timer` (лог — `journalctl -t eb-cert-sync`)
+  и перезагружает nginx только при изменении файлов. Юнит **падает**, если
+  копия истекает меньше чем через 20 дней — это единственный сигнал о
+  сломавшемся продлении на VPS (писем Let's Encrypt не шлёт). Смотреть в
+  `systemctl --failed`.
+- Без интернета не работают: облачный CO₂ (MagicAir), пуши, голос Яндекса.
+  Расписания, сценарии, BLE — работают.
 - Управление: `sudo systemctl {start|stop|restart} easy-breezy`
   (юнит поверх `docker compose`); новая версия — `make release` +
   `make deploy` с dev-машины (раздел «Обновление версии»).

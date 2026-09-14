@@ -8,7 +8,7 @@
   become: true
   vars:
     eb_root: /opt/easy-breezy
-    eb_compose_profiles: tunnel # пустая строка = без frpc-туннеля
+    eb_compose_profiles: tunnel,lan # tunnel — frpc наружу, lan — nginx в LAN
   tasks:
     - name: Пакеты (curl — watchdog, bluez — BLE-стек, sqlite3 — бэкапы)
       ansible.builtin.apt:
@@ -34,6 +34,7 @@
       loop:
         - "{{ eb_root }}"
         - "{{ eb_root }}/data"
+        - "{{ eb_root }}/nginx"
 
     - name: Compose-файл
       ansible.builtin.copy:
@@ -64,6 +65,24 @@
         mode: "0600"
         force: false
 
+    - name: Каталог TLS (копия боевого серта — ключ виден только root)
+      ansible.builtin.file:
+        path: "{{ eb_root }}/tls"
+        state: directory
+        mode: "0700"
+
+    - name: Конфиг nginx для LAN-входа
+      ansible.builtin.copy:
+        src: ../nginx/easy-breezy-lan.conf
+        dest: "{{ eb_root }}/nginx/easy-breezy-lan.conf"
+        mode: "0644"
+
+    - name: Скрипт доставки сертификата
+      ansible.builtin.copy:
+        src: ../systemd/eb-cert-sync.sh
+        dest: /usr/local/bin/eb-cert-sync.sh
+        mode: "0755"
+
     - name: Watchdog-скрипт
       ansible.builtin.copy:
         src: ../systemd/eb-watchdog.sh
@@ -79,6 +98,8 @@
         - easy-breezy.service
         - easy-breezy-watchdog.service
         - easy-breezy-watchdog.timer
+        - easy-breezy-cert-sync.service
+        - easy-breezy-cert-sync.timer
 
     - name: Автозапуск сервиса (поднимет первый деплой)
       ansible.builtin.systemd:
@@ -92,9 +113,16 @@
         enabled: true
         state: started
 
+    - name: Таймер доставки сертификата (ssh-ключ заводится вручную, README)
+      ansible.builtin.systemd:
+        name: easy-breezy-cert-sync.timer
+        enabled: true
+        state: started
+
     - name: Что дальше
       ansible.builtin.debug:
         msg: >-
           Заполните {{ eb_root }}/.env (обязательно EB_TIMEZONE — в контейнере
-          системная TZ = UTC) и {{ eb_root }}/frpc.toml, затем из корня
-          репозитория: make deploy VERSION=x.y.z
+          системная TZ = UTC) и {{ eb_root }}/frpc.toml, заведите ssh-ключ для
+          доставки TLS-серта (deploy/ansible/README.md, «LAN без интернета»),
+          затем из корня репозитория: make deploy VERSION=x.y.z

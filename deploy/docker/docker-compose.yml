@@ -26,6 +26,20 @@ services:
       driver: json-file
       options: { max-size: "10m", max-file: "5" }
 
+  nginx:                        # LAN-вход по HTTPS (профиль lan, deploy.env)
+    image: nginx:1.29-alpine
+    profiles: [lan]
+    restart: unless-stopped
+    network_mode: host          # 80/443 в LAN + доступ к сервису на 127.0.0.1
+    volumes:
+      # каталог, не файл: ansible подменяет конфиг атомарно (новый inode),
+      # bind-mount одного файла остался бы на старом
+      - ./nginx:/etc/nginx/conf.d:ro
+      - ./tls:/etc/easy-breezy/tls:ro   # копия боевого серта (eb-cert-sync.sh)
+    logging:
+      driver: json-file
+      options: { max-size: "5m", max-file: "2" }
+
   frpc:                         # туннель до VPS (профиль tunnel, deploy.env)
     image: snowdreamtech/frpc:latest
     profiles: [tunnel]
