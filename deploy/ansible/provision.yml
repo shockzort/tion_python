@@ -65,6 +65,21 @@
         mode: "0600"
         force: false
 
+    - name: Супервизорный таймаут LE (дефолтные 420 мс рвут слабый линк)
+      # Полевой замер 2026-09-14: бризер на -88 dBm жил медианно 15 с и был
+      # онлайн 52 % времени. 420 мс = девять пропущенных пакетов подряд при
+      # интервале 45 мс; на границе чувствительности это происходит постоянно.
+      # 5 с — потолок, дальше бризер сам запрашивает свои 4 с (BlueZ уважает
+      # параметры устройства). Радио это не лечит, но короткие замирания
+      # перестают рвать соединение.
+      ansible.builtin.lineinfile:
+        path: /etc/bluetooth/main.conf
+        regexp: '^#?ConnectionSupervisionTimeout\s*='
+        line: ConnectionSupervisionTimeout=500
+        insertafter: '^\[LE\]'
+        mode: "0644"
+      notify: Перезапустить bluetooth
+
     - name: Каталог TLS (копия боевого серта — ключ виден только root)
       ansible.builtin.file:
         path: "{{ eb_root }}/tls"
@@ -126,3 +141,9 @@
           системная TZ = UTC) и {{ eb_root }}/frpc.toml, заведите ssh-ключ для
           доставки TLS-серта (deploy/ansible/README.md, «LAN без интернета»),
           затем из корня репозитория: make deploy VERSION=x.y.z
+
+  handlers:
+    - name: Перезапустить bluetooth
+      ansible.builtin.systemd:
+        name: bluetooth.service
+        state: restarted

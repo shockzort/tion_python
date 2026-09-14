@@ -47,6 +47,11 @@ https://easy-breezy.duckdns.org/api/system/health`. Настройка с нул
   `systemctl --failed`.
 - Без интернета не работают: облачный CO₂ (MagicAir), пуши, голос Яндекса.
   Расписания, сценарии, BLE — работают.
+- Стабильность BLE упирается в RSSI (`sudo btmgmt conn-info -t 2 <MAC>`):
+  −72 dBm — связь без разрывов, на −88 dBm бризер был офлайн половину
+  времени.
+  Супервизорный таймаут поднят с дефолтных 420 мс до 5 с — разбор и цифры
+  замера в `deploy/ansible/README.md`, «BLE: радио и супервизорный таймаут».
 - Управление: `sudo systemctl {start|stop|restart} easy-breezy`
   (юнит поверх `docker compose`); новая версия — `make release` +
   `make deploy` с dev-машины (раздел «Обновление версии»).
