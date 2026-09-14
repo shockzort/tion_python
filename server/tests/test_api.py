@@ -249,6 +249,9 @@ def test_spa_static_with_fallback(tmp_path: Path) -> None:
         assert client.get("/v1.0/v1.0/user/devices").status_code == 404
         assert client.request("HEAD", "/v1.0/v1.0").status_code == 404
         assert client.get("/oauth/nonexistent").status_code == 404
+        # ws мимо /api/ws не должен срываться в статику: там assert → 500
+        with pytest.raises(WebSocketDisconnect), client.websocket_connect("/devices"):
+            pass
 
 
 def test_pairing_wizard_flow(client_app: ClientAndApp) -> None:

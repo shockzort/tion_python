@@ -114,7 +114,14 @@ def build_container(settings: Settings) -> AppContainer:
     scan_gate = asyncio.Lock()
     transport_factory = make_transport_factory(settings)
     registry = DeviceRegistry(db, events, cache, transport_factory, scan_gate=scan_gate)
-    bus = CommandBus(db, registry, events, holds)
+    bus = CommandBus(
+        db,
+        registry,
+        events,
+        holds,
+        offline_grace=settings.command_offline_grace_seconds,
+        hold_defer=settings.manual_hold_minutes * 60,  # окно hold — и есть срок
+    )
     telemetry = TelemetryService(db, events)
     auth = AuthService(db, session_ttl_seconds=settings.session_ttl_days * 86400)
     pairing: PairingService

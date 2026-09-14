@@ -142,7 +142,17 @@ async def core(db: Database) -> AsyncIterator[CoreEnv]:
         backoff_max=0.05,
         response_timeout=0.15,
     )
-    bus = CommandBus(db, registry, events, holds, execute_budget=2.0, max_queue_depth=2)
+    bus = CommandBus(
+        db,
+        registry,
+        events,
+        holds,
+        execute_budget=2.0,
+        max_queue_depth=2,
+        offline_grace=1.0,  # ожидание эфира в тестах — доли секунды
+        hold_defer=2.0,
+        hold_poll=0.02,
+    )
     await bus.start()
     yield CoreEnv(db, events, cache, holds, registry, bus, fleet)
     await bus.stop()

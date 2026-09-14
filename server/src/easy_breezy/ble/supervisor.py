@@ -3,6 +3,12 @@
 Машина состояний (план §7): DISCONNECTED → CONNECTING → ONLINE; деградация
 (3 подряд неудачных опроса) и разрыв ведут к пересозданию соединения.
 Время ожидания инжектируется — тесты выполняются мгновенно.
+
+Backoff растёт только по подряд идущим неудачам: сессия, пережившая хотя бы
+один успешный опрос, считается здоровой и возвращает паузу к
+``backoff_initial``. Признак здоровья — именно успешный опрос, а не факт
+выхода в ONLINE: сессия, рассыпавшаяся сразу после подключения, не должна
+обнулять счётчик (иначе флапающее устройство долбит адаптер без пауз).
 """
 
 from __future__ import annotations
@@ -45,7 +51,7 @@ class DeviceSupervisor:
         *,
         poll_interval: float = 30.0,
         backoff_initial: float = 1.0,
-        backoff_max: float = 60.0,
+        backoff_max: float = 20.0,
         response_timeout: float = 3.0,
         scan_gate: asyncio.Lock | None = None,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
@@ -64,6 +70,10 @@ class DeviceSupervisor:
         self._on_state = on_state
         self._on_connection = on_connection
         self._task: asyncio.Task[None] | None = None
+        self._session_healthy = False
+        """Текущая сессия пережила успешный опрос (сброс backoff)."""
+        self.online = asyncio.Event()
+        """Взведено, пока сессия ONLINE и ``driver`` пригоден для команд."""
         self.connection_state = ConnectionState.DISCONNECTED
         self.last_state: S4State | None = None
         self.address: str | None = None
@@ -87,9 +97,9 @@ class DeviceSupervisor:
         backoff = self._backoff_initial
         while True:
             self._set_connection(ConnectionState.CONNECTING)
+            self._session_healthy = False
             try:
                 await self._session()
-                backoff = self._backoff_initial  # сессия жила — сброс backoff
             except (TransportError, ProtocolError, DriverError, OSError) as exc:
                 log.warning(
                     "device_session_failed",
@@ -104,6 +114,11 @@ class DeviceSupervisor:
                 # зависало в connecting); неожиданное — лог и ретрай
                 log.exception("device_session_crashed", address=self.address)
             self._set_connection(ConnectionState.DISCONNECTED)
+            # здоровая сессия завершается тем же исключением, что и провал
+            # (``_session`` не возвращается нормально), поэтому сброс идёт по
+            # флагу, а не по факту отсутствия исключения
+            if self._session_healthy:
+                backoff = self._backoff_initial
             delay = min(backoff, self._backoff_max)
             delay += delay * 0.25 * self._jitter()
             log.debug("reconnect_backoff", address=self.address, delay=round(delay, 2))
@@ -133,6 +148,7 @@ class DeviceSupervisor:
             await self._poll_until_lost(driver, disconnected)
         finally:
             self.driver = None
+            self.online.clear()  # драйвер снят раньше смены состояния
             await driver.close()
 
     async def _poll_until_lost(
@@ -154,6 +170,7 @@ class DeviceSupervisor:
             try:
                 await driver.get_state()
                 misses = 0
+                self._session_healthy = True
             except DriverTimeoutError:
                 misses += 1
                 log.warning("poll_missed", address=self.address, misses=misses)
@@ -170,6 +187,10 @@ class DeviceSupervisor:
         if state is self.connection_state:
             return
         self.connection_state = state
+        if state is ConnectionState.ONLINE:
+            self.online.set()
+        else:
+            self.online.clear()
         log.info("connection_state", address=self.address, state=state)
         if self._on_connection is not None:
             self._on_connection(state)

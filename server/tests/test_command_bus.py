@@ -8,7 +8,12 @@ import pytest
 
 from easy_breezy.ble.protocol.s4 import OPCODE_SET_PARAMS
 from easy_breezy.ble.supervisor import ConnectionState
-from easy_breezy.core.bus import CommandError, CommandOutcome, CommandTicket
+from easy_breezy.core.bus import (
+    CommandBus,
+    CommandError,
+    CommandOutcome,
+    CommandTicket,
+)
 from easy_breezy.core.events import TOPIC_COMMAND_FINISHED
 from easy_breezy.core.model import StateDelta
 from easy_breezy.storage.models import CommandSource, CommandStatus, Device
@@ -138,7 +143,13 @@ async def test_priority_overtakes_queue_order(core: CoreEnv, device: Device) -> 
     assert set_fan_frames(core) == [2, 6, 3]
 
 
-async def test_manual_hold_skips_automation(core: CoreEnv, device: Device) -> None:
+async def test_manual_hold_defers_schedule(core: CoreEnv, device: Device) -> None:
+    """Плановая команда под hold ждёт конца окна, а не гибнет (решение владельца).
+
+    Расписание — явное намерение владельца: ручное окно его откладывает,
+    но не отменяет, иначе «Ночь» в 23:00 просто теряется, если вечером
+    трогали бризер руками.
+    """
     manual = await core.bus.submit(
         device_uuid=device.uuid,
         delta=StateDelta(fan_speed=4),
@@ -148,25 +159,80 @@ async def test_manual_hold_skips_automation(core: CoreEnv, device: Device) -> No
     assert (await outcome_of(manual)).status is CommandStatus.DONE
     assert core.holds.is_held(device.uuid)
 
-    automation = await core.bus.submit(
+    scheduled = await core.bus.submit(
         device_uuid=device.uuid,
         delta=StateDelta(fan_speed=1),
         source=CommandSource.SCHEDULE,
-        idempotency_key="s:blocked",
+        idempotency_key="s:deferred",
     )
-    outcome = await outcome_of(automation)
-    assert outcome.status is CommandStatus.SKIPPED_HOLD
-    assert core.fleet.device(MAC).state.fan_speed == 4  # автоматика не прошла
+    await asyncio.sleep(0.1)
+    assert not scheduled.outcome.done()  # окно держит команду
+    assert core.fleet.device(MAC).state.fan_speed == 4
 
-    core.holds.release(device.uuid)
-    retried = await core.bus.submit(
+    core.holds.release(device.uuid)  # «вернуть автоматику»
+    assert (await outcome_of(scheduled)).status is CommandStatus.DONE
+    assert core.fleet.device(MAC).state.fan_speed == 1
+
+
+async def test_manual_command_passes_while_schedule_deferred(
+    core: CoreEnv, device: Device
+) -> None:
+    """Отложенная плановая команда не занимает воркер: ручная проходит сразу."""
+    core.holds.place(device.uuid)
+    deferred = await core.bus.submit(
         device_uuid=device.uuid,
         delta=StateDelta(fan_speed=1),
         source=CommandSource.SCHEDULE,
-        idempotency_key="s:after-release",
+        idempotency_key="s:waiting",
     )
-    assert (await outcome_of(retried)).status is CommandStatus.DONE
-    assert core.fleet.device(MAC).state.fan_speed == 1
+    manual = await core.bus.submit(
+        device_uuid=device.uuid,
+        delta=StateDelta(fan_speed=5),
+        source=CommandSource.UI,
+        idempotency_key="ui:while-deferred",
+    )
+    assert (await outcome_of(manual)).status is CommandStatus.DONE
+    assert not deferred.outcome.done()
+
+
+async def test_trigger_still_skipped_by_hold(core: CoreEnv, device: Device) -> None:
+    """Реактивная автоматика окну уступает: скорость по CO₂ нельзя применять поздно."""
+    core.holds.place(device.uuid)
+    ticket = await core.bus.submit(
+        device_uuid=device.uuid,
+        delta=StateDelta(fan_speed=1),
+        source=CommandSource.TRIGGER,
+        idempotency_key="t:blocked",
+    )
+    assert (await outcome_of(ticket)).status is CommandStatus.SKIPPED_HOLD
+
+
+async def test_endless_hold_eventually_skips_schedule(
+    core: CoreEnv, device: Device
+) -> None:
+    """Окно, пережившее срок откладывания, всё-таки пропускает команду."""
+    bus = CommandBus(
+        core.db,
+        core.registry,
+        core.events,
+        core.holds,
+        execute_budget=2.0,
+        offline_grace=1.0,
+        hold_defer=0.05,  # срок истекает раньше окна
+        hold_poll=0.01,
+    )
+    await bus.start()
+    try:
+        core.holds.place(device.uuid)
+        ticket = await bus.submit(
+            device_uuid=device.uuid,
+            delta=StateDelta(fan_speed=1),
+            source=CommandSource.SCHEDULE,
+            idempotency_key="s:never",
+        )
+        assert (await outcome_of(ticket)).status is CommandStatus.SKIPPED_HOLD
+    finally:
+        await bus.stop()
 
 
 async def test_antiflood_supersedes_oldest_schedule(
@@ -199,7 +265,8 @@ async def test_antiflood_supersedes_oldest_schedule(
         assert record.status == CommandStatus.SUPERSEDED
 
 
-async def test_unreachable_device_fails_fast(core: CoreEnv) -> None:
+async def test_unreachable_device_fails_after_grace(core: CoreEnv) -> None:
+    """Устройство, не вернувшееся в эфир за отведённое окно, — честный отказ."""
     mac = "FA:KE:00:00:00:99"
     core.fleet.connect_failures[mac] = 1  # каждый транспорт падает на connect
     silent = await core.registry.add_device(mac=mac, name="Недоступный")
@@ -212,6 +279,29 @@ async def test_unreachable_device_fails_fast(core: CoreEnv) -> None:
     outcome = await outcome_of(ticket)
     assert outcome.status is CommandStatus.FAILED
     assert outcome.error == "устройство недоступно"
+
+
+async def test_command_survives_short_outage(core: CoreEnv, device: Device) -> None:
+    """Короткий разрыв не убивает команду: шина ждёт возвращения бризера.
+
+    Полевой факт стенда: линк рвётся каждые несколько минут, а отказ выжигает
+    ключ идемпотентности — расписание после него уже не повторится.
+    """
+    core.fleet.connect_failures[MAC] = 1  # каждый новый транспорт падает
+    core.fleet.transport(MAC).simulate_connection_loss()
+    await wait_for_condition(
+        lambda: core.registry.connection(device.uuid) is not ConnectionState.ONLINE
+    )
+
+    ticket = await core.bus.submit(
+        device_uuid=device.uuid,
+        delta=StateDelta(fan_speed=6),
+        source=CommandSource.SCHEDULE,
+        idempotency_key="s:during-outage",
+    )
+    core.fleet.connect_failures[MAC] = 0  # бризер вернулся в эфир
+    assert (await outcome_of(ticket)).status is CommandStatus.DONE
+    assert core.fleet.device(MAC).state.fan_speed == 6
 
 
 async def test_transient_failure_retried_once(core: CoreEnv, device: Device) -> None:

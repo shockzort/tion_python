@@ -11,7 +11,8 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.responses import Response
-from starlette.types import Scope
+from starlette.types import Receive, Scope, Send
+from starlette.websockets import WebSocketClose
 
 from easy_breezy import __version__
 from easy_breezy.api import ws
@@ -55,6 +56,19 @@ class SpaStaticFiles(StaticFiles):
     200 — иначе ошибки конфигурации (например, лишний /v1.0 в Endpoint URL
     навыка) маскируются до самых дальних стадий.
     """
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        """WebSocket на неизвестный путь закрывается, а не падает 500.
+
+        Статика примонтирована на "/", поэтому ws-запрос к любому пути кроме
+        ``/api/ws`` долетает сюда; ``StaticFiles`` на таком scope срывается
+        ``AssertionError``, и uvicorn отвечает 500 (полевой факт: 20 таких
+        ответов подряд, клиент ретраил каждую секунду).
+        """
+        if scope["type"] == "websocket":
+            await WebSocketClose()(scope, receive, send)
+            return
+        await super().__call__(scope, receive, send)
 
     async def get_response(self, path: str, scope: Scope) -> Response:
         try:

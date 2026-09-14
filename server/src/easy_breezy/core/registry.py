@@ -55,7 +55,7 @@ class DeviceRegistry:
         scan_gate: asyncio.Lock | None = None,
         poll_interval: float = 30.0,
         backoff_initial: float = 1.0,
-        backoff_max: float = 60.0,
+        backoff_max: float = 20.0,
         response_timeout: float = 3.0,
     ) -> None:
         self._db = db

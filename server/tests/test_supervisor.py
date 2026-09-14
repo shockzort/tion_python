@@ -9,7 +9,11 @@ from __future__ import annotations
 import asyncio
 
 from easy_breezy.ble.fake import FakeS4Device, FakeTransport
+from easy_breezy.ble.protocol.s4 import OPCODE_REQUEST_PARAMS
 from easy_breezy.ble.supervisor import ConnectionState, DeviceSupervisor
+
+POLL_INTERVAL = 1000.0
+"""Опрос в тестах не наступает сам — задержка отличима от backoff-пауз."""
 
 
 class SleepRecorder:
@@ -21,6 +25,34 @@ class SleepRecorder:
     async def __call__(self, delay: float) -> None:
         self.delays.append(delay)
         await asyncio.sleep(0)
+
+
+class GatedSleeper(SleepRecorder):
+    """Тот же сон, но паузу опроса держит вечно — сессия не успевает опросить."""
+
+    async def __call__(self, delay: float) -> None:
+        self.delays.append(delay)
+        if delay == POLL_INTERVAL:
+            await asyncio.Event().wait()
+        await asyncio.sleep(0)
+
+
+def backoffs(sleeper: SleepRecorder) -> list[float]:
+    """Только паузы переподключения: сон опроса идёт через тот же инжект."""
+    return [delay for delay in sleeper.delays if delay != POLL_INTERVAL]
+
+
+async def wait_for_polls(device: FakeS4Device, count: int) -> None:
+    """Ждёт ``count`` запросов состояния — первый из них делает сама сессия."""
+    async with asyncio.timeout(2.0):
+        while (
+            sum(
+                frame.opcode == OPCODE_REQUEST_PARAMS
+                for frame in device.received_frames
+            )
+            < count
+        ):
+            await asyncio.sleep(0)
 
 
 async def _wait_for_state(
@@ -42,7 +74,7 @@ def make_supervisor(
         jitter=lambda: 0.0,
         backoff_initial=1.0,
         backoff_max=60.0,
-        poll_interval=1000.0,
+        poll_interval=POLL_INTERVAL,
         response_timeout=0.2,
         on_connection=transitions.append,
         **kwargs,  # type: ignore[arg-type]
@@ -178,3 +210,84 @@ async def test_scan_gate_blocks_connection_attempts() -> None:
         assert not gate.locked()  # после подключения гейт свободен
     finally:
         await supervisor.stop()
+
+
+async def test_backoff_resets_after_healthy_session() -> None:
+    """Прожившая сессия обнуляет паузу — разрыв стоит секунду, а не потолок.
+
+    Полевой факт NUC: ``_session()`` не возвращается нормально (опрос всегда
+    заканчивается исключением), поэтому прежний сброс «по отсутствию
+    исключения» был мёртвым кодом. За 17 дней все 2780 пауз переподключения
+    легли в 60–75 с: каждый разрыв стоил минуту простоя даже после суток
+    непрерывного онлайна.
+    """
+    device = FakeS4Device()
+    transport = FakeTransport(device)
+    transport.connect_failures = 3
+    supervisor, sleeper, _ = make_supervisor(transport)
+
+    supervisor.start()
+    try:
+        await _wait_for_state(supervisor, ConnectionState.ONLINE)
+        assert backoffs(sleeper) == [1.0, 2.0, 4.0]  # пауза успела вырасти
+        await wait_for_polls(device, 2)  # сессия пережила опрос — здорова
+        transport.simulate_connection_loss()
+        await _wait_for_state(supervisor, ConnectionState.DISCONNECTED)
+        await _wait_for_state(supervisor, ConnectionState.ONLINE)
+    finally:
+        await supervisor.stop()
+
+    assert backoffs(sleeper) == [1.0, 2.0, 4.0, 1.0]
+
+
+async def test_backoff_keeps_growing_on_flapping_session() -> None:
+    """Сессия, рассыпавшаяся до первого опроса, счётчик не обнуляет.
+
+    Иначе флапающий бризер (подключился — и сразу отвалился) заставил бы
+    супервизор долбить адаптер без пауз.
+    """
+    device = FakeS4Device()
+    transport = FakeTransport(device)
+    transport.connect_failures = 3
+    sleeper = GatedSleeper()
+    supervisor = DeviceSupervisor(
+        lambda: transport,
+        sleep=sleeper,
+        jitter=lambda: 0.0,
+        backoff_initial=1.0,
+        backoff_max=60.0,
+        poll_interval=POLL_INTERVAL,
+        response_timeout=0.2,
+    )
+
+    supervisor.start()
+    try:
+        await _wait_for_state(supervisor, ConnectionState.ONLINE)
+        assert backoffs(sleeper) == [1.0, 2.0, 4.0]
+        transport.simulate_connection_loss()  # опросить не успели
+        await _wait_for_state(supervisor, ConnectionState.DISCONNECTED)
+        await _wait_for_state(supervisor, ConnectionState.ONLINE)
+    finally:
+        await supervisor.stop()
+
+    assert backoffs(sleeper) == [1.0, 2.0, 4.0, 8.0]
+
+
+async def test_online_event_tracks_driver_availability() -> None:
+    """``online`` взведено ровно тогда, когда драйвер годен для команд (шина)."""
+    transport = FakeTransport(FakeS4Device())
+    supervisor, _, _ = make_supervisor(transport)
+
+    supervisor.start()
+    try:
+        assert not supervisor.online.is_set()
+        await _wait_for_state(supervisor, ConnectionState.ONLINE)
+        assert supervisor.online.is_set()
+        assert supervisor.driver is not None
+
+        transport.simulate_connection_loss()
+        await _wait_for_state(supervisor, ConnectionState.DISCONNECTED)
+        assert not supervisor.online.is_set()
+    finally:
+        await supervisor.stop()
+    assert not supervisor.online.is_set()

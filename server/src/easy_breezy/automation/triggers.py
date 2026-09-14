@@ -257,7 +257,8 @@ class TriggerEngine:
                 )
                 continue
             if self._holds.is_held(device_uuid):
-                log.info(
+                # раз в измерение на каждое устройство — в INFO это спам
+                log.debug(
                     "maintain_skipped_hold",
                     trigger_id=trigger.id,
                     device_uuid=device_uuid,

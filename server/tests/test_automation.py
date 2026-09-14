@@ -490,17 +490,27 @@ async def test_schedule_crash_replay_is_idempotent(
     assert await journal_count(core) == 3  # но новых команд нет — дедуп по ключу
 
 
-async def test_hold_blocks_schedule(core: CoreEnv, automation: AutomationEnv) -> None:
-    """Manual-hold: расписание пропускается со статусом skipped_hold (FR-23)."""
+async def test_hold_defers_schedule(core: CoreEnv, automation: AutomationEnv) -> None:
+    """Manual-hold откладывает расписание до конца окна, остальные идут сразу.
+
+    Решение владельца поверх FR-23: смена режима по расписанию — намерение,
+    а не реакция; окно её задерживает, но не отменяет.
+    """
     devices, _, _ = await night_mode_fixture(core)
     core.holds.place(devices[0].uuid)
     await automation.clock.advance(90)
-    fired, finished = await run_and_wait_finished(core, automation, 3)
+    fired, finished = await run_and_wait_finished(core, automation, 2)
     assert fired == 1
     by_device = {event["device_uuid"]: event["status"] for event in finished}
-    assert by_device[devices[0].uuid] == "skipped_hold"
-    others = [devices[1].uuid, devices[2].uuid]
-    assert all(by_device[uuid] == "done" for uuid in others)
+    assert set(by_device) == {devices[1].uuid, devices[2].uuid}
+    assert all(status == "done" for status in by_device.values())
+
+    with core.events.subscribe(TOPIC_COMMAND_FINISHED) as subscription:
+        core.holds.release(devices[0].uuid)  # «вернуть автоматику»
+        held = (await asyncio.wait_for(subscription.get(), 5)).data
+    assert held["device_uuid"] == devices[0].uuid
+    assert held["status"] == "done"
+    assert core.fleet.device(devices[0].mac).state.fan_speed == 1
 
 
 async def test_scheduler_loop_wakes_by_clock_and_event(

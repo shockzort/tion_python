@@ -8,6 +8,19 @@
 Один воркер на устройство сериализует записи: SET_PARAMS шлёт полный набор,
 поэтому дельта мержится поверх последнего подтверждённого состояния
 непосредственно перед записью — параллельные записи теряли бы поля.
+
+Две задержки исполнения намеренные (полевой факт стенда: бризер теряет линк
+каждые несколько минут, а ключ идемпотентности сгорает навсегда).
+
+* Устройство не в эфире — команда ждёт возвращения до ``offline_grace``
+  вместо мгновенного ``failed``: иначе короткий разрыв в момент срабатывания
+  расписания навсегда съедает команду на это устройство.
+* Плановая команда (приоритет ``_SCHEDULED_PRIORITY``) под manual-hold не
+  пропускается, а откладывается до конца окна: расписание — явное намерение
+  владельца, оно ждёт своей очереди. Реактивная автоматика (триггеры,
+  приоритет 1) по-прежнему уступает окну со статусом ``skipped_hold``.
+  Ожидание идёт отдельной задачей, воркер устройства остаётся свободен для
+  ручных команд.
 """
 
 from __future__ import annotations
@@ -17,7 +30,7 @@ import bisect
 import contextlib
 import itertools
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -40,6 +53,18 @@ log = structlog.get_logger(__name__)
 JOURNAL_RETENTION_SECONDS = 30 * 86400
 
 _MANUAL_PRIORITY = 0
+_SCHEDULED_PRIORITY = 2
+"""С этого приоритета команда считается плановой: под hold она ждёт, а не гибнет."""
+
+_MANUAL_OFFLINE_GRACE = 30.0
+"""Потолок ожидания эфира для ручной команды — за ней наблюдает человек."""
+
+_HOLD_POLL_SECONDS = 15.0
+"""Шаг перепроверки hold: ручное снятие окна не должно ждать конца часа."""
+
+_DRIVER_SETTLE_SECONDS = 0.05
+"""Гонка «состояние ещё ONLINE, драйвер уже снят» — короткая пауза вместо спина."""
+
 _DEFAULT_PRIORITY: dict[CommandSource, int] = {
     CommandSource.UI: 0,
     CommandSource.YANDEX: 0,
@@ -83,6 +108,8 @@ class _QueueItem:
     device_uuid: str = field(compare=False)
     key: str = field(compare=False)
     delta: StateDelta = field(compare=False)
+    defer_until: float = field(default=0.0, compare=False)
+    """Абсолютный срок, после которого hold перестаёт откладывать и пропускает."""
 
 
 class _DeviceQueue:
@@ -127,20 +154,29 @@ class CommandBus:
         holds: HoldManager,
         *,
         now: Callable[[], float] = time.time,
+        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         execute_budget: float = 4.0,
         max_queue_depth: int = 8,
+        offline_grace: float = 180.0,
+        hold_defer: float = 3600.0,
+        hold_poll: float = _HOLD_POLL_SECONDS,
     ) -> None:
         self._db = db
         self._registry = registry
         self._events = events
         self._holds = holds
         self._now = now
+        self._sleep = sleep
         self._budget = execute_budget
         self._max_depth = max_queue_depth
+        self._offline_grace = offline_grace
+        self._hold_defer = hold_defer
+        self._hold_poll = hold_poll
         self._seq = itertools.count()
         self._queues: dict[str, _DeviceQueue] = {}
         self._workers: dict[str, asyncio.Task[None]] = {}
         self._tickets: dict[str, CommandTicket] = {}
+        self._deferred: dict[int, asyncio.Task[None]] = {}
 
     async def start(self) -> None:
         """Восстановление журнала: зависшие с прошлого запуска — failed;
@@ -156,11 +192,12 @@ class CommandBus:
             )
 
     async def stop(self) -> None:
-        workers = list(self._workers.values())
+        tasks = [*self._workers.values(), *self._deferred.values()]
         self._workers.clear()
-        for task in workers:
+        self._deferred.clear()
+        for task in tasks:
             task.cancel()
-        for task in workers:
+        for task in tasks:
             with contextlib.suppress(asyncio.CancelledError):
                 await task
         for ticket in self._tickets.values():
@@ -230,6 +267,7 @@ class CommandBus:
             device_uuid,
             idempotency_key,
             delta,
+            defer_until=self._now() + self._hold_defer,
         )
         queue = self._queues.setdefault(device_uuid, _DeviceQueue())
         queue.push(item)
@@ -293,6 +331,8 @@ class CommandBus:
                     CommandStatus.FAILED,
                     error="внутренняя ошибка исполнения",
                 )
+            if outcome is None:
+                continue  # отложена под hold — вернётся в очередь своей задачей
             async with self._db.session() as session:
                 await CommandRepo(session).finish(
                     outcome.command_id,
@@ -303,8 +343,12 @@ class CommandBus:
                 )
             self._finalize(item, outcome)
 
-    async def _execute(self, item: _QueueItem) -> CommandOutcome:
+    async def _execute(self, item: _QueueItem) -> CommandOutcome | None:
+        """Итог команды; ``None`` — отложена под hold и вернётся в очередь."""
         if item.priority > _MANUAL_PRIORITY and self._holds.is_held(item.device_uuid):
+            if item.priority >= _SCHEDULED_PRIORITY and self._now() < item.defer_until:
+                self._defer(item)
+                return None
             log.info(
                 "command_skipped_hold",
                 command_id=item.command_id,
@@ -317,10 +361,11 @@ class CommandBus:
                 item.command_id, started_at=int(self._now())
             )
 
+        deadline = self._now() + self._grace_for(item)
         timed_out = False
         last_error = _UNREACHABLE
         for attempt in (1, 2):  # бюджет исполнения + один ретрай (план §8)
-            driver = self._online_driver(item.device_uuid)
+            driver = await self._await_driver(item, deadline)
             if driver is None:
                 timed_out = False
                 last_error = _UNREACHABLE
@@ -363,6 +408,89 @@ class CommandBus:
             if base is None:
                 base = await driver.get_state()
             return await driver.set_state(delta.apply_to(base))
+
+    def _grace_for(self, item: _QueueItem) -> float:
+        """Сколько ждать возвращения устройства в эфир.
+
+        Ручную команду ждёт человек перед экраном — ей короткий потолок;
+        автоматике торопиться некуда, зато терять её нельзя.
+        """
+        if item.priority == _MANUAL_PRIORITY:
+            return min(self._offline_grace, _MANUAL_OFFLINE_GRACE)
+        return self._offline_grace
+
+    async def _await_driver(self, item: _QueueItem, deadline: float) -> S4Driver | None:
+        """Драйвер устройства; ждёт возвращения в эфир до ``deadline``."""
+        supervisor = self._registry.supervisor(item.device_uuid)
+        if supervisor is None:
+            return None
+        waited = False
+        while True:
+            driver = self._online_driver(item.device_uuid)
+            if driver is not None:
+                if waited:
+                    log.info(
+                        "command_device_returned",
+                        command_id=item.command_id,
+                        device_uuid=item.device_uuid,
+                    )
+                return driver
+            remaining = deadline - self._now()
+            if remaining <= 0:
+                return None
+            if not waited:
+                waited = True
+                log.info(
+                    "command_waits_device",
+                    command_id=item.command_id,
+                    device_uuid=item.device_uuid,
+                    timeout=round(remaining, 1),
+                )
+            if supervisor.online.is_set():
+                # состояние уже ONLINE, драйвер сессии ещё не выставлен
+                await self._sleep(min(remaining, _DRIVER_SETTLE_SECONDS))
+                continue
+            try:
+                async with asyncio.timeout(remaining):
+                    await supervisor.online.wait()
+            except TimeoutError:
+                return None
+
+    def _defer(self, item: _QueueItem) -> None:
+        """Откладывает плановую команду до конца manual-hold.
+
+        Ожидание вынесено в отдельную задачу: воркер устройства остаётся
+        свободен, и ручные команды, ради которых окно и ставилось,
+        проходят без очереди.
+        """
+        if item.command_id in self._deferred:
+            return
+        task = asyncio.create_task(
+            self._wait_hold(item), name=f"command-defer-{item.command_id}"
+        )
+        self._deferred[item.command_id] = task
+        task.add_done_callback(lambda _: self._deferred.pop(item.command_id, None))
+
+    async def _wait_hold(self, item: _QueueItem) -> None:
+        """Ждёт конца окна (или срока откладывания) и возвращает команду в очередь."""
+        log.info(
+            "command_deferred_hold",
+            command_id=item.command_id,
+            device_uuid=item.device_uuid,
+            defer_until=int(item.defer_until),
+        )
+        while True:
+            now = self._now()
+            hold_until = self._holds.hold_until(item.device_uuid)
+            if hold_until is None or now >= item.defer_until:
+                break
+            # шаг ограничен: ручное снятие окна должно подхватываться быстро
+            await self._sleep(
+                min(hold_until - now, item.defer_until - now, self._hold_poll)
+            )
+        queue = self._queues.get(item.device_uuid)
+        if queue is not None:
+            queue.push(item)
 
     def _online_driver(self, device_uuid: str) -> S4Driver | None:
         supervisor = self._registry.supervisor(device_uuid)
