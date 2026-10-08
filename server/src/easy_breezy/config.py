@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Annotated
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -67,6 +69,15 @@ class Settings(BaseSettings):
     """Время жизни сессии-cookie."""
     session_cookie_secure: bool = False
     """Secure-флаг cookie; включается за TLS (nginx, Фаза 4)."""
+    filter_reset_days: dict[str, Annotated[int, Field(ge=1, le=65535)] | None] = Field(
+        default_factory=dict
+    )
+    """Проверенный ресурс после сброса S4, {uuid: дни}; пусто — функция закрыта.
+
+    Это критерий контрольного чтения, не записываемое значение ресурса.
+    Заполняется после аппаратной проверки при фактической замене фильтров.
+    null разрешает полевую проверку без объявления успеха.
+    """
 
     def resolved_database_url(self) -> str:
         """URL БД: явный или файл в каталоге данных."""

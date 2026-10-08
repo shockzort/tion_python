@@ -57,6 +57,8 @@ class FakeS4Device:
         self.drop_responses = 0
         """Сколько ближайших ответов молча не отправлять (таймауты)."""
         self.corrupt_crc = False
+        self.filter_reset_seconds = 180 * 86400
+        self.ignore_filter_reset = False
         """Портить CRC ответов (проверка мягкой валидации)."""
         self._reassembler = Reassembler()
 
@@ -105,7 +107,11 @@ class FakeS4Device:
             fan_speed=payload[4],
             in_temp=self.state.in_temp,
             out_temp=self.state.out_temp,
-            filter_remain_seconds=self.state.filter_remain_seconds,
+            filter_remain_seconds=(
+                self.filter_reset_seconds
+                if flags & 0x80 and not self.ignore_filter_reset
+                else self.state.filter_remain_seconds
+            ),
         )
 
 

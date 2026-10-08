@@ -37,7 +37,12 @@ from typing import Any
 import structlog
 from sqlalchemy.exc import IntegrityError
 
-from easy_breezy.ble.driver import DriverError, DriverTimeoutError, S4Driver
+from easy_breezy.ble.driver import (
+    DriverError,
+    DriverTimeoutError,
+    FilterResetUnconfirmed,
+    S4Driver,
+)
 from easy_breezy.ble.protocol.s4 import S4State
 from easy_breezy.ble.supervisor import ConnectionState
 from easy_breezy.core.events import TOPIC_COMMAND_FINISHED, EventBus
@@ -46,7 +51,7 @@ from easy_breezy.core.model import StateDelta, state_to_dict
 from easy_breezy.core.registry import DeviceRegistry
 from easy_breezy.storage import Database
 from easy_breezy.storage.models import CommandSource, CommandStatus
-from easy_breezy.storage.repos import CommandRepo
+from easy_breezy.storage.repos import CommandRepo, DeviceRepo
 
 log = structlog.get_logger(__name__)
 
@@ -107,7 +112,8 @@ class _QueueItem:
     command_id: int = field(compare=False)
     device_uuid: str = field(compare=False)
     key: str = field(compare=False)
-    delta: StateDelta = field(compare=False)
+    delta: StateDelta | None = field(compare=False)
+    filter_reset_days: int | None = field(default=None, compare=False)
     defer_until: float = field(default=0.0, compare=False)
     """Абсолютный срок, после которого hold перестаёт откладывать и пропускает."""
 
@@ -160,6 +166,8 @@ class CommandBus:
         offline_grace: float = 180.0,
         hold_defer: float = 3600.0,
         hold_poll: float = _HOLD_POLL_SECONDS,
+        filter_reset_days: dict[str, int | None] | None = None,
+        fake_filter_reset: bool = False,
     ) -> None:
         self._db = db
         self._registry = registry
@@ -177,6 +185,10 @@ class CommandBus:
         self._workers: dict[str, asyncio.Task[None]] = {}
         self._tickets: dict[str, CommandTicket] = {}
         self._deferred: dict[int, asyncio.Task[None]] = {}
+        self._filter_reset_days = filter_reset_days or {}
+        self._fake_filter_reset = fake_filter_reset
+        self._filter_submit_lock = asyncio.Lock()
+        self._filter_active: dict[str, CommandTicket] = {}
 
     async def start(self) -> None:
         """Восстановление журнала: зависшие с прошлого запуска — failed;
@@ -205,6 +217,50 @@ class CommandBus:
                 ticket.outcome.cancel()
         self._tickets.clear()
         self._queues.clear()
+        self._filter_active.clear()
+
+    def filter_reset_supported(self, device_uuid: str, model: str) -> bool:
+        """Сброс разрешён только S4 с проверенным ресурсом после замены."""
+        return model == "s4" and (
+            self._fake_filter_reset or device_uuid in self._filter_reset_days
+        )
+
+    async def submit_filter_reset(
+        self,
+        *,
+        device_uuid: str,
+        idempotency_key: str,
+    ) -> CommandTicket:
+        """Одно обслуживание в полёте на бризер, включая разные вкладки UI."""
+        key = f"filter-reset:{device_uuid}:{idempotency_key}"
+        async with self._filter_submit_lock:
+            existing = self._tickets.get(key) or await self._ticket_from_journal(key)
+            if existing is not None:
+                return existing
+            async with self._db.session() as session:
+                device = await DeviceRepo(session).get(device_uuid)
+            if device is None or not self.filter_reset_supported(
+                device_uuid, device.model
+            ):
+                raise CommandError("сброс фильтров ещё не проверен для этого бризера")
+            active = self._filter_active.get(device_uuid)
+            if active is not None and not active.outcome.done():
+                raise CommandError("сброс фильтров уже выполняется")
+            if self._online_driver(device_uuid) is None:
+                raise CommandError("бризер недоступен; сброс не поставлен в очередь")
+            ticket = await self._submit(
+                device_uuid=device_uuid,
+                delta=None,
+                source=CommandSource.UI,
+                idempotency_key=key,
+                filter_reset_days=(
+                    180
+                    if self._fake_filter_reset
+                    else self._filter_reset_days[device_uuid]
+                ),
+            )
+            self._filter_active[device_uuid] = ticket
+            return ticket
 
     async def submit(
         self,
@@ -215,12 +271,30 @@ class CommandBus:
         idempotency_key: str,
         priority: int | None = None,
     ) -> CommandTicket:
+        return await self._submit(
+            device_uuid=device_uuid,
+            delta=delta,
+            source=source,
+            idempotency_key=idempotency_key,
+            priority=priority,
+        )
+
+    async def _submit(
+        self,
+        *,
+        device_uuid: str,
+        delta: StateDelta | None,
+        source: CommandSource,
+        idempotency_key: str,
+        priority: int | None = None,
+        filter_reset_days: int | None = None,
+    ) -> CommandTicket:
         """Ставит команду в очередь устройства; дедуп по ключу идемпотентности.
 
         Повторный submit того же ключа возвращает ту же квитанцию (команда в
         полёте — общий Future; завершена — Future с сохранённым итогом).
         """
-        if delta.is_empty():
+        if delta is not None and delta.is_empty():
             raise CommandError("пустая дельта — нечего применять")
         if self._registry.supervisor(device_uuid) is None:
             raise CommandError(f"устройство {device_uuid} не в реестре")
@@ -243,7 +317,11 @@ class CommandBus:
                     device_uuid=device_uuid,
                     source=source.value,
                     priority=resolved_priority,
-                    payload=delta.to_payload(),
+                    payload=(
+                        delta.to_payload()
+                        if delta is not None
+                        else {"operation": "filter_reset"}
+                    ),
                     created_at=int(self._now()),
                 )
                 command_id = record.id
@@ -267,7 +345,8 @@ class CommandBus:
             device_uuid,
             idempotency_key,
             delta,
-            defer_until=self._now() + self._hold_defer,
+            filter_reset_days=filter_reset_days,
+            defer_until=self._now() + (15 if delta is None else self._hold_defer),
         )
         queue = self._queues.setdefault(device_uuid, _DeviceQueue())
         queue.push(item)
@@ -361,6 +440,9 @@ class CommandBus:
                 item.command_id, started_at=int(self._now())
             )
 
+        if item.delta is None:
+            return await self._execute_filter_reset(item)
+
         deadline = self._now() + self._grace_for(item)
         timed_out = False
         last_error = _UNREACHABLE
@@ -400,6 +482,38 @@ class CommandBus:
             )
         status = CommandStatus.TIMEOUT if timed_out else CommandStatus.FAILED
         return CommandOutcome(item.command_id, status, error=last_error)
+
+    async def _execute_filter_reset(self, item: _QueueItem) -> CommandOutcome:
+        driver = self._online_driver(item.device_uuid)
+        if driver is None or self._now() > item.defer_until:
+            return CommandOutcome(
+                item.command_id,
+                CommandStatus.FAILED,
+                error="Сброс не выполнен: бризер недоступен или истёк срок ожидания.",
+            )
+        try:
+            async with asyncio.timeout(15):
+                actual = await driver.reset_filter(expected_days=item.filter_reset_days)
+        except FilterResetUnconfirmed as exc:
+            return CommandOutcome(
+                item.command_id,
+                CommandStatus.FAILED,
+                result_state=(
+                    state_to_dict(exc.actual) if exc.actual is not None else None
+                ),
+                error=str(exc),
+            )
+        except (DriverError, TimeoutError) as exc:
+            return CommandOutcome(
+                item.command_id,
+                CommandStatus.FAILED,
+                error="Результат сброса не подтверждён. "
+                "Проверьте ресурс перед повтором. " + str(exc),
+            )
+        # Обслуживание не ставит manual-hold и не повторяет SET при ошибке.
+        return CommandOutcome(
+            item.command_id, CommandStatus.DONE, result_state=state_to_dict(actual)
+        )
 
     async def _apply(self, driver: S4Driver, delta: StateDelta) -> S4State:
         """Мерж дельты поверх фактического состояния и запись полного набора."""
@@ -504,6 +618,7 @@ class CommandBus:
     def _log_adjustments(self, item: _QueueItem, actual: S4State) -> None:
         """Сверка ADR-0004: что из запрошенного прошивка скорректировала."""
         actual_dict = state_to_dict(actual)
+        assert item.delta is not None
         adjusted = {
             name: {"wanted": wanted, "actual": actual_dict[name]}
             for name, wanted in item.delta.to_payload().items()
@@ -518,6 +633,8 @@ class CommandBus:
             )
 
     def _finalize(self, item: _QueueItem, outcome: CommandOutcome) -> None:
+        if item.delta is None:
+            self._filter_active.pop(item.device_uuid, None)
         ticket = self._tickets.pop(item.key, None)
         if ticket is not None and not ticket.outcome.done():
             ticket.outcome.set_result(outcome)

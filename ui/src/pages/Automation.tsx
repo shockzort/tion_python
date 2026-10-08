@@ -775,6 +775,7 @@ function TriggersTab() {
   }
 
   const sensorNames = new Map(sensors.data.map((s) => [s.id, s.name]))
+  const sensorById = new Map(sensors.data.map((s) => [s.id, s]))
   const scenarioNames = new Map(scenarios.data.map((s) => [s.id, s.name]))
 
   return (
@@ -795,6 +796,8 @@ function TriggersTab() {
               <p className="font-medium">{trigger.name}</p>
               {trigger.kind === 'maintain' && <Badge tone="ok">поддержание</Badge>}
               {trigger.is_active && <Badge tone="warn">сработал</Badge>}
+              {trigger.enabled && (sensorById.get(trigger.sensor_id)?.metric_stale?.[trigger.metric] ?? true) &&
+                <Badge tone="warn">ожидает свежие данные</Badge>}
               {!trigger.enabled && <Badge tone="muted">выключен</Badge>}
             </div>
             <p className="truncate text-xs text-slate-400">

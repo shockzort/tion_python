@@ -34,6 +34,12 @@ METRICS = ("co2", "temperature", "humidity")
 
 KIND_MAGICAIR = "magicair"
 KIND_MQTT = "mqtt"
+KIND_QINGPING_BLE = "qingping_ble"
+
+
+def metric_is_stale(ts: int | float | None, now: float) -> bool:
+    """Неизвестное, будущее или старое время не подтверждает свежесть."""
+    return ts is None or not 0 <= now - ts <= STALE_AFTER_SECONDS
 
 
 def clean_metrics(raw: dict[str, Any]) -> dict[str, float]:
@@ -69,13 +75,17 @@ class SensorIngest:
         metrics: dict[str, Any],
         name: str | None = None,
         auto_register: bool = False,
+        observed_at: int | None = None,
     ) -> int | None:
         """Принимает измерение; возвращает id датчика или None (проигнорировано)."""
         clean = clean_metrics(metrics)
         if not clean:
             log.debug("sensor_metrics_empty", source_key=source_key)
             return None
-        ts = int(self._now())
+        received_at = int(self._now())
+        ts = received_at if observed_at is None else observed_at
+        if metric_is_stale(ts, received_at):
+            return None
         registered = False
         async with self._db.session() as session:
             repo = SensorRepo(session)
@@ -88,10 +98,22 @@ class SensorIngest:
                     kind=kind, name=name or source_key, source_key=source_key
                 )
                 registered = True
+            if sensor.kind != kind:
+                return None
+            times = sensor.last_metric_at or {}
+            clean = {
+                metric: value
+                for metric, value in clean.items()
+                if times.get(metric, -1) <= ts
+                and (observed_at is None or times.get(metric) != ts)
+            }
+            if not clean:
+                return None
             # мерж: по-метричные MQTT-топики шлют метрики порознь, а реестр
             # держит полный последний срез; событие несёт только свежие
             sensor.last_values = {**(sensor.last_values or {}), **clean}
-            sensor.last_seen_at = ts
+            sensor.last_seen_at = received_at
+            sensor.last_metric_at = {**times, **dict.fromkeys(clean, ts)}
             sensor_id = sensor.id
         if registered:
             log.info("sensor_registered", sensor_id=sensor_id, kind=kind, name=name)

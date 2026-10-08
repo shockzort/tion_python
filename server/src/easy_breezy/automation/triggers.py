@@ -4,7 +4,7 @@
 измерению — чистая функция ``decide`` (табличные тесты). Защёлка:
 enter при пересечении порога (вне кулдауна и в окне) → enter-действия;
 exit при возврате за порог ∓ гистерезис → exit-действия. Молчащий датчик
-(>10 мин) отмечается warning-логом минутного sweep, защёлка держится —
+(>5 мин для отдельной метрики) отмечается warning-логом sweep, защёлка держится —
 исчезновение данных не повод дёргать устройства.
 
 Maintain-триггеры (поддержание CO₂) оцениваются на тех же измерениях:
@@ -42,15 +42,13 @@ from easy_breezy.automation.scenarios import ScenarioError, ScenarioService
 from easy_breezy.ble.supervisor import ConnectionState
 from easy_breezy.core.events import TOPIC_SENSOR_UPDATED, EventBus, Subscription
 from easy_breezy.core.holds import HoldManager
+from easy_breezy.core.sensors import METRICS, metric_is_stale
 from easy_breezy.core.state import StateCache
 from easy_breezy.storage import Database
 from easy_breezy.storage.models import CommandSource, Trigger
 from easy_breezy.storage.repos import SensorRepo, TriggerRepo
 
 log = structlog.get_logger(__name__)
-
-SILENT_AFTER_SECONDS = 600.0
-"""Датчик без данных дольше 10 минут — warning в sweep."""
 
 _SWEEP_INTERVAL = 60.0
 
@@ -180,7 +178,8 @@ class TriggerEngine:
         self, sensor_id: int, metrics: dict[str, float], ts: float
     ) -> int:
         """Оценивает триггеры датчика по измерению; возвращает число запусков."""
-        self._silent_ids.discard(sensor_id)
+        if metric_is_stale(ts, self._clock.now()):
+            return 0
         plans: list[_FirePlan] = []
         async with self._db.session() as session:
             triggers = await TriggerRepo(session).list_enabled_for_sensor(sensor_id)
@@ -332,11 +331,20 @@ class TriggerEngine:
         now = self._clock.now()
         async with self._db.session() as session:
             sensors = await SensorRepo(session).list_all()
+            triggers = await TriggerRepo(session).list_all()
         for sensor in sensors:
-            silent = (
-                sensor.last_seen_at is None
-                or now - sensor.last_seen_at > SILENT_AFTER_SECONDS
-            )
+            times = sensor.last_metric_at or {}
+            needed = set(sensor.last_values or {}) | {
+                trigger.metric
+                for trigger in triggers
+                if trigger.sensor_id == sensor.id and trigger.enabled
+            }
+            stale_metrics = [
+                metric
+                for metric in (needed or METRICS)
+                if metric_is_stale(times.get(metric), now)
+            ]
+            silent = bool(stale_metrics)
             if silent and sensor.id not in self._silent_ids:
                 self._silent_ids.add(sensor.id)
                 log.warning(
@@ -344,6 +352,7 @@ class TriggerEngine:
                     sensor_id=sensor.id,
                     name=sensor.name,
                     last_seen_at=sensor.last_seen_at,
+                    stale_metrics=stale_metrics,
                 )
             elif not silent:
                 self._silent_ids.discard(sensor.id)

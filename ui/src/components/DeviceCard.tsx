@@ -92,7 +92,7 @@ export default function DeviceCard({
           {state.filter_remain_days < FILTER_WARN_DAYS && (
             <span className="text-rose-400">
               {' '}
-              · фильтр {Math.round(state.filter_remain_days)} дн
+              · фильтр: осталось {Math.round(state.filter_remain_days)} дн
             </span>
           )}
         </p>
@@ -155,7 +155,7 @@ export default function DeviceCard({
                   : ''
               }
             >
-              фильтр {Math.round(state.filter_remain_days)} дн
+              фильтр: осталось {Math.round(state.filter_remain_days)} дн
             </span>
           </footer>
         </div>

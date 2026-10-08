@@ -21,8 +21,8 @@ OPCODE_SET_PARAMS = b"\x30\x32"
 OPCODE_REQUEST_DEVICE_INFO = b"\x32\x33"
 OPCODE_STATE_RESPONSE = b"\x31\x32"
 
-MIN_STATE_PAYLOAD = 20  # известные поля лежат в первых 20 байтах
-_SIGN = (181).to_bytes(2, "little")  # константа апстрима, назначение неизвестно
+MIN_STATE_PAYLOAD = 21  # ресурс фильтров — uint32 в байтах 17–20
+_NORMAL_FILTER_TIME = (181).to_bytes(2, "little")  # сохраняем обычный SET из golden
 
 FAN_SPEED_MIN = 1
 FAN_SPEED_MAX = 6
@@ -82,7 +82,7 @@ def decode_state(payload: bytes) -> S4State:
         fan_speed=payload[4],
         in_temp=_int8(payload[5]),
         out_temp=_int8(payload[6]),
-        filter_remain_seconds=int.from_bytes(payload[17:20], "little"),
+        filter_remain_seconds=int.from_bytes(payload[17:21], "little"),
     )
 
 
@@ -100,7 +100,12 @@ def encode_request_params(*, rand: int, request_id: bytes, extra: bytes) -> byte
 
 
 def encode_set_params(
-    state: S4State, *, rand: int, request_id: bytes, extra: bytes
+    state: S4State,
+    *,
+    rand: int,
+    request_id: bytes,
+    extra: bytes,
+    filter_reset: bool = False,
 ) -> bytes:
     """Кадр установки параметров.
 
@@ -119,10 +124,11 @@ def encode_set_params(
         | int(state.light) << 2
         | int(not state.heater) << 3
         | 1 << 4
+        | int(filter_reset) << 7
     )
     mode_code = 1 if state.mode is Mode.RECIRCULATION else 0
-    payload = (
-        bytes([flags, 0x00, mode_code, state.heater_temp, state.fan_speed]) + _SIGN
+    payload = bytes([flags, 0x00, mode_code, state.heater_temp, state.fan_speed]) + (
+        b"\x00\x00" if filter_reset else _NORMAL_FILTER_TIME
     )
     return build_frame(
         OPCODE_SET_PARAMS, payload, rand=rand, request_id=request_id, extra=extra
@@ -156,5 +162,5 @@ def encode_state_payload(state: S4State) -> bytes:
     payload[4] = state.fan_speed
     payload[5] = state.in_temp & 0xFF
     payload[6] = state.out_temp & 0xFF
-    payload[17:20] = state.filter_remain_seconds.to_bytes(3, "little")
+    payload[17:21] = state.filter_remain_seconds.to_bytes(4, "little")
     return bytes(payload)

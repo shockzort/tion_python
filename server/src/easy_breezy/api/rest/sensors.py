@@ -27,7 +27,9 @@ from easy_breezy.automation.maintain import (
 )
 from easy_breezy.container import AppContainer
 from easy_breezy.core.events import TOPIC_DEVICE_LIST_CHANGED
-from easy_breezy.core.sensors import KIND_MQTT, STALE_AFTER_SECONDS
+from easy_breezy.core.sensors import METRICS, metric_is_stale
+from easy_breezy.integrations.qingping.client import DiscoveredQingping
+from easy_breezy.integrations.qingping.parser import SOURCE_PREFIX, source_key
 from easy_breezy.storage.models import Sensor, Trigger
 from easy_breezy.storage.repos import (
     DeviceRepo,
@@ -53,6 +55,8 @@ class SensorView(BaseModel):
     room_id: int | None
     last_values: dict[str, float] | None
     last_seen_at: int | None
+    last_metric_at: dict[str, int] | None
+    metric_stale: dict[str, bool]
     stale: bool
 
     @classmethod
@@ -65,9 +69,15 @@ class SensorView(BaseModel):
             room_id=record.room_id,
             last_values=record.last_values,
             last_seen_at=record.last_seen_at,
-            stale=(
-                record.last_seen_at is None
-                or now - record.last_seen_at > STALE_AFTER_SECONDS
+            last_metric_at=record.last_metric_at,
+            metric_stale={
+                metric: metric_is_stale((record.last_metric_at or {}).get(metric), now)
+                for metric in METRICS
+            },
+            stale=not record.last_values
+            or any(
+                metric_is_stale((record.last_metric_at or {}).get(metric), now)
+                for metric in record.last_values
             ),
         )
 
@@ -76,8 +86,17 @@ class SensorCreate(BaseModel):
     """Ручная регистрация MQTT-датчика (MagicAir приходят из облака сами)."""
 
     name: str = Field(min_length=1, max_length=100)
+    kind: Literal["mqtt", "qingping_ble"] = "mqtt"
     source_key: str = Field(min_length=1, max_length=200)
     room_id: int | None = None
+
+    @model_validator(mode="after")
+    def _normalize_source(self) -> SensorCreate:
+        if self.kind == "qingping_ble":
+            self.source_key = source_key(self.source_key.strip())
+        elif self.source_key.startswith(SOURCE_PREFIX):
+            raise ValueError("этот префикс зарезервирован для Qingping BLE")
+        return self
 
 
 class SensorUpdate(BaseModel):
@@ -310,16 +329,24 @@ async def add_sensor(body: SensorCreate, container: ContainerDep) -> SensorView:
             ):
                 raise HTTPException(status_code=404, detail="комната не найдена")
             record = await SensorRepo(session).create(
-                kind=KIND_MQTT, name=body.name, source_key=body.source_key
+                kind=body.kind, name=body.name, source_key=body.source_key
             )
             record.room_id = body.room_id
             view = SensorView.from_record(record, now=time.time())
     except IntegrityError as exc:
         raise HTTPException(
-            status_code=409, detail="датчик с таким топиком уже есть"
+            status_code=409, detail="датчик с таким источником уже есть"
         ) from exc
     container.events.publish(TOPIC_DEVICE_LIST_CHANGED, {"sensor_id": view.id})
     return view
+
+
+@router.post("/sensors/qingping/scan")
+async def scan_qingping(container: ContainerDep) -> list[DiscoveredQingping]:
+    try:
+        return await container.qingping.discover()
+    except ValueError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @router.patch("/sensors/{sensor_id}")
@@ -332,8 +359,11 @@ async def update_sensor(
             raise HTTPException(status_code=404, detail="датчик не найден")
         if body.name is not None:
             record.name = body.name
-        if body.room_id is not None:
-            if await RoomRepo(session).get(body.room_id) is None:
+        if "room_id" in body.model_fields_set:
+            if (
+                body.room_id is not None
+                and await RoomRepo(session).get(body.room_id) is None
+            ):
                 raise HTTPException(status_code=404, detail="комната не найдена")
             record.room_id = body.room_id
         view = SensorView.from_record(record, now=time.time())

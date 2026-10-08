@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -17,6 +16,7 @@ from easy_breezy.automation.clock import SystemClock
 from easy_breezy.automation.scenarios import ScenarioService
 from easy_breezy.automation.scheduler import SchedulerService, resolve_timezone
 from easy_breezy.automation.triggers import TriggerEngine
+from easy_breezy.ble.coordinator import ScanCoordinator
 from easy_breezy.ble.fake import FakeS4Device, FakeTransport, fake_mac
 from easy_breezy.ble.protocol.s4 import GATT_NOTIFY, GATT_WRITE
 from easy_breezy.ble.transport import BleakTransport, BleTransport
@@ -39,6 +39,7 @@ from easy_breezy.core.watchdog import BleWatchdog
 from easy_breezy.integrations.intents.service import IntentService
 from easy_breezy.integrations.magicair.client import MagicAirPoller
 from easy_breezy.integrations.mqtt.client import MqttIngest
+from easy_breezy.integrations.qingping.client import QingpingListener
 from easy_breezy.integrations.yandex.callbacks import YandexNotifier
 from easy_breezy.storage import Database
 from easy_breezy.storage.backup import BackupService
@@ -64,6 +65,7 @@ class AppContainer:
     triggers: TriggerEngine
     magicair: MagicAirPoller
     mqtt: MqttIngest
+    qingping: QingpingListener
     intents: IntentService
     backup: BackupService
     watchdog: BleWatchdog
@@ -85,6 +87,7 @@ class AppContainer:
         await self.triggers.start()
         await self.magicair.start()
         await self.mqtt.start()
+        await self.qingping.start()
         await self.push.start()
         await self.backup.start()
         await self.watchdog.start()
@@ -95,6 +98,7 @@ class AppContainer:
         await self.watchdog.stop()
         await self.backup.stop()
         await self.push.stop()
+        await self.qingping.stop()
         await self.mqtt.stop()
         await self.magicair.stop()
         await self.triggers.stop()
@@ -111,7 +115,7 @@ def build_container(settings: Settings) -> AppContainer:
     events = EventBus()
     cache = StateCache()
     holds = HoldManager(duration_seconds=settings.manual_hold_minutes * 60)
-    scan_gate = asyncio.Lock()
+    scan_gate = ScanCoordinator()
     transport_factory = make_transport_factory(settings)
     registry = DeviceRegistry(db, events, cache, transport_factory, scan_gate=scan_gate)
     bus = CommandBus(
@@ -121,6 +125,8 @@ def build_container(settings: Settings) -> AppContainer:
         holds,
         offline_grace=settings.command_offline_grace_seconds,
         hold_defer=settings.manual_hold_minutes * 60,  # окно hold — и есть срок
+        filter_reset_days=settings.filter_reset_days,
+        fake_filter_reset=settings.fake_devices > 0,
     )
     telemetry = TelemetryService(db, events)
     auth = AuthService(db, session_ttl_seconds=settings.session_ttl_days * 86400)
@@ -153,6 +159,9 @@ def build_container(settings: Settings) -> AppContainer:
         password=settings.magicair_password,
     )
     mqtt = MqttIngest(db, sensors, events, url=settings.mqtt_url)
+    qingping = QingpingListener(
+        db, sensors, events, scan_gate, enabled=settings.fake_devices == 0
+    )
     intents = IntentService(
         db,
         registry,
@@ -189,6 +198,7 @@ def build_container(settings: Settings) -> AppContainer:
         triggers=triggers,
         magicair=magicair,
         mqtt=mqtt,
+        qingping=qingping,
         intents=intents,
         backup=backup,
         watchdog=watchdog,

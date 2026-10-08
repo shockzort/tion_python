@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
+from contextlib import AsyncExitStack
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -92,7 +93,10 @@ class BlePairingService:
         self._progress("pairing", mac=mac)
         transport = self._transport_factory(mac)
         try:
-            await transport.pair()
+            async with AsyncExitStack() as stack:
+                if self._scan_gate is not None:
+                    await stack.enter_async_context(self._scan_gate)
+                await transport.pair()
         except TransportError as exc:
             self._progress("failed", mac=mac, error=str(exc))
             raise PairingError(str(exc)) from exc

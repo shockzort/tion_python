@@ -104,11 +104,12 @@ class TelemetryService:
             source_type = "sensor"
             source_id = str(event.data["sensor_id"])
             metrics: dict[str, float] = event.data["metrics"]
+            ts = int(event.data["ts"])
         else:
             source_type = "device"
             source_id = event.data["device_uuid"]
             metrics = _device_metrics(event.data["state"])
-        ts = int(self._now())
+            ts = int(self._now())
         async with self._db.session() as session:
             await TelemetryRepo(session).add_points(
                 TelemetryPoint(ts, source_type, source_id, metric, value)

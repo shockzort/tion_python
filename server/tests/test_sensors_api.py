@@ -325,8 +325,14 @@ def test_yandex_exposes_sensor(client_app: ClientAndApp) -> None:
     db_path = app.state.settings.data_dir / "easy_breezy.db"
     with sqlite3.connect(db_path) as connection:
         connection.execute(
-            "UPDATE sensors SET last_values = ?, last_seen_at = ? WHERE id = ?",
-            (json.dumps({"co2": 850, "humidity": 41}), int(time.time()), sensor["id"]),
+            "UPDATE sensors SET last_values = ?, last_seen_at = ?, "
+            "last_metric_at = ? WHERE id = ?",
+            (
+                json.dumps({"co2": 850, "humidity": 41}),
+                int(time.time()),
+                json.dumps({"co2": int(time.time()), "humidity": int(time.time())}),
+                sensor["id"],
+            ),
         )
 
     query_after = client.post(

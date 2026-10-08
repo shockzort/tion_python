@@ -34,6 +34,7 @@ import {
 } from '../api/queries'
 import type { Device, Sensor } from '../api/types'
 import { Button, Card, Spinner } from '../components/ui'
+import { withGaps } from '../lib/chartGaps'
 
 const DEVICE_METRICS = [
   { key: 'out_temp', label: 'После бризера, °C' },
@@ -491,6 +492,8 @@ function ChartFrame({
       <CartesianGrid stroke="#1e293b" strokeDasharray="3 3" />
       <XAxis
         dataKey="ts"
+        type="number"
+        domain={['dataMin', 'dataMax']}
         tickFormatter={formatTs}
         stroke="#64748b"
         fontSize={11}
@@ -536,7 +539,7 @@ function SeriesChart({
     <div className="h-64 w-full">
       <ResponsiveContainer>
         {agg === 'raw' ? (
-          <LineChart data={raw} margin={margin}>
+          <LineChart data={withGaps(raw, 300)} margin={margin}>
             {ChartFrame(formatters)}
             <Line
               type="monotone"
@@ -549,7 +552,7 @@ function SeriesChart({
             />
           </LineChart>
         ) : (
-          <LineChart data={hourly} margin={margin}>
+          <LineChart data={withGaps(hourly, 3600)} margin={margin}>
             {ChartFrame(formatters)}
             <Line
               type="monotone"

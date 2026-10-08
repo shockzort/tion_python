@@ -25,8 +25,7 @@ from easy_breezy.ble.supervisor import ConnectionState
 from easy_breezy.container import AppContainer
 from easy_breezy.core.bus import CommandError
 from easy_breezy.core.model import state_to_dict
-from easy_breezy.core.sensors import METRICS
-from easy_breezy.core.sensors import STALE_AFTER_SECONDS as SENSOR_STALE
+from easy_breezy.core.sensors import METRICS, metric_is_stale
 from easy_breezy.integrations.yandex import mapping
 from easy_breezy.storage.models import CommandSource, CommandStatus, Device
 from easy_breezy.storage.repos import DeviceRepo, RoomRepo, SensorRepo
@@ -202,14 +201,17 @@ async def _sensor_query(container: AppContainer, ref_id: str) -> dict[str, Any]:
         sensor = await SensorRepo(session).get(sensor_id)
     if sensor is None:
         return {"id": ref_id, "error_code": ERROR_NOT_FOUND}
-    stale = (
-        sensor.last_seen_at is None or time.time() - sensor.last_seen_at > SENSOR_STALE
-    )
-    if stale or not sensor.last_values:
+    now = time.time()
+    values = {
+        metric: value
+        for metric, value in (sensor.last_values or {}).items()
+        if not metric_is_stale((sensor.last_metric_at or {}).get(metric), now)
+    }
+    if not values:
         return {"id": ref_id, "error_code": ERROR_UNREACHABLE}
     return {
         "id": ref_id,
-        "properties": mapping.sensor_property_states(sensor.last_values),
+        "properties": mapping.sensor_property_states(values),
     }
 
 

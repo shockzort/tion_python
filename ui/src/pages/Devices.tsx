@@ -13,12 +13,14 @@ import {
   useGroups,
   useRooms,
   useSensors,
+  useScanQingping,
   useSetGroupMembers,
   useUpdateDevice,
   useUpdateSensor,
 } from '../api/queries'
 import type { Device, Group } from '../api/types'
 import PairWizard from '../components/PairWizard'
+import FilterReset from '../components/FilterReset'
 import { Badge, Button, Card, Spinner } from '../components/ui'
 
 export default function Devices() {
@@ -64,6 +66,10 @@ function SensorsSection() {
   const addSensor = useAddSensor()
   const updateSensor = useUpdateSensor()
   const deleteSensor = useDeleteSensor()
+  const rooms = useRooms()
+  const scan = useScanQingping()
+  const [kind, setKind] = useState<'mqtt' | 'qingping_ble'>('qingping_ble')
+  const [roomId, setRoomId] = useState('')
   const [name, setName] = useState('')
   const [topic, setTopic] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -71,13 +77,15 @@ function SensorsSection() {
   const add = async () => {
     setError(null)
     if (name.trim() === '' || topic.trim() === '') {
-      setError('нужны имя и MQTT-топик')
+      setError(kind === 'mqtt' ? 'нужны имя и MQTT-топик' : 'нужны имя и MAC датчика')
       return
     }
     try {
       await addSensor.mutateAsync({
         name: name.trim(),
         source_key: topic.trim(),
+        kind,
+        ...(roomId ? { room_id: Number(roomId) } : {}),
       })
       setName('')
       setTopic('')
@@ -98,15 +106,15 @@ function SensorsSection() {
       <h3 className="font-medium">Датчики</h3>
       <p className="text-xs text-slate-500">
         MagicAir подхватываются из облака Tion сами (учётка — в настройках
-        сервера). MQTT-датчик публикует JSON или числа в топик и «{'{топик}'}
-        /co2|temperature|humidity».
+        сервера). Qingping Air Monitor Lite (CGDN1) подключается по Bluetooth:
+        включите постоянное USB-питание и найдите датчик рядом с сервером.
       </p>
       {sensors.data?.map((sensor) => (
         <div
           key={sensor.id}
-          className="flex items-center justify-between gap-2 rounded-xl border border-slate-800 px-3 py-2"
+          className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-800 px-3 py-2"
         >
-          <div className="min-w-0">
+          <div className="min-w-0 max-w-full">
             <div className="flex items-center gap-2">
               <p className="truncate text-sm font-medium">{sensor.name}</p>
               <Badge tone={sensor.stale ? 'warn' : 'ok'}>
@@ -114,9 +122,18 @@ function SensorsSection() {
               </Badge>
             </div>
             <p className="truncate text-xs text-slate-500">
-              {sensor.kind} · {sensor.source_key}
+              {sensor.kind === 'qingping_ble' ? 'Qingping BLE' : sensor.kind} · {sensor.source_key.replace('qingping_ble:', '')}
             </p>
           </div>
+          <select
+            aria-label={`Комната датчика ${sensor.name}`}
+            value={sensor.room_id ?? ''}
+            onChange={(event) => updateSensor.mutate({ id: sensor.id, body: { room_id: event.target.value ? Number(event.target.value) : null } })}
+            className="max-w-full rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-sm"
+          >
+            <option value="">Без комнаты</option>
+            {rooms.data?.map((room) => <option key={room.id} value={room.id}>{room.name}</option>)}
+          </select>
           <div className="flex shrink-0 gap-2">
             <Button variant="ghost" onClick={() => rename(sensor.id, sensor.name)}>
               Имя
@@ -131,19 +148,45 @@ function SensorsSection() {
           </div>
         </div>
       ))}
+      <select aria-label="Тип датчика" value={kind} onChange={(event) => {
+        setKind(event.target.value as 'mqtt' | 'qingping_ble')
+        setTopic('')
+        setError(null)
+      }} className="max-w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm">
+        <option value="qingping_ble">Qingping Air Monitor Lite</option>
+        <option value="mqtt">MQTT</option>
+      </select>
+      {kind === 'qingping_ble' && <>
+        <Button variant="ghost" disabled={scan.isPending} onClick={() => scan.mutate()}>
+          {scan.isPending ? 'Ищем…' : 'Найти Qingping'}
+        </Button>
+        {scan.isError && <p role="alert" className="text-sm text-rose-400">{scan.error.message}</p>}
+        {scan.isSuccess && scan.data.length === 0 && <p className="text-sm text-slate-400">CGDN1 не найден. Проверьте питание и расстояние до сервера или введите MAC вручную.</p>}
+        {scan.data?.map((item) => <Button key={item.source_key} variant="ghost" disabled={item.registered} onClick={() => {
+          setTopic(item.source_key.replace('qingping_ble:', ''))
+          if (!name) setName('Qingping')
+        }}>
+          {item.source_key.replace('qingping_ble:', '')} · {item.rssi} dBm {item.registered ? '· добавлен' : ''}
+        </Button>)}
+      </>}
       <div className="flex flex-col gap-2 sm:flex-row">
         <input
           value={name}
           onChange={(event) => setName(event.target.value)}
           placeholder="Имя (например, CO₂ спальня)"
-          className="flex-1 rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm outline-none focus:border-sky-500"
+          className="min-w-0 flex-1 rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm outline-none focus:border-sky-500"
         />
         <input
           value={topic}
           onChange={(event) => setTopic(event.target.value)}
-          placeholder="MQTT-топик (home/bedroom/air)"
-          className="flex-1 rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm outline-none focus:border-sky-500"
+          placeholder={kind === 'mqtt' ? 'MQTT-топик (home/bedroom/air)' : 'MAC датчика (AA:BB:CC:DD:EE:FF)'}
+          aria-label={kind === 'mqtt' ? 'MQTT-топик' : 'MAC датчика'}
+          className="min-w-0 flex-1 rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm outline-none focus:border-sky-500"
         />
+        <select aria-label="Комната нового датчика" value={roomId} onChange={(event) => setRoomId(event.target.value)} className="min-w-0 rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm">
+          <option value="">Без комнаты</option>
+          {rooms.data?.map((room) => <option key={room.id} value={room.id}>{room.name}</option>)}
+        </select>
         <Button onClick={add} disabled={addSensor.isPending}>
           Добавить датчик
         </Button>
@@ -188,7 +231,7 @@ function DeviceRow({ device }: { device: Device }) {
               setEditing(true)
             }}
             title="Переименовать"
-            className="text-left font-medium hover:text-sky-300"
+            className="min-w-0 break-words text-left font-medium hover:text-sky-300"
           >
             {device.name} <span className="text-xs text-slate-500">✎</span>
           </button>
@@ -200,7 +243,7 @@ function DeviceRow({ device }: { device: Device }) {
 
       <p className="text-xs text-slate-500">{device.mac}</p>
 
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex flex-wrap items-start justify-between gap-2">
         <select
           value={device.room_id ?? ''}
           onChange={(event) => {
@@ -213,7 +256,7 @@ function DeviceRow({ device }: { device: Device }) {
             }
           }}
           aria-label="Комната"
-          className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-sm text-slate-300"
+          className="max-w-full rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-sm text-slate-300"
         >
           <option value="">Без комнаты</option>
           {rooms.data?.map((room) => (
@@ -222,6 +265,7 @@ function DeviceRow({ device }: { device: Device }) {
             </option>
           ))}
         </select>
+        <FilterReset device={device} />
         <Button
           variant="danger"
           onClick={() => {

@@ -48,6 +48,14 @@ class DriverTimeoutError(DriverError):
     """Устройство не ответило кадром состояния за отведённое время."""
 
 
+class FilterResetUnconfirmed(DriverError):
+    """Запись могла пройти; повторять её автоматически нельзя."""
+
+    def __init__(self, message: str, actual: S4State | None = None) -> None:
+        super().__init__(message)
+        self.actual = actual
+
+
 class S4Driver:
     """Драйвер одного бризера S4.
 
@@ -139,19 +147,92 @@ class S4Driver:
     async def _request_state(self) -> S4State:
         waiter = self._new_waiter()
         nonces = self._nonces()
-        await self._write_frame(
-            encode_request_params(
-                rand=nonces.rand, request_id=nonces.request_id, extra=nonces.extra
-            )
-        )
         try:
+            await self._write_frame(
+                encode_request_params(
+                    rand=nonces.rand, request_id=nonces.request_id, extra=nonces.extra
+                )
+            )
             return await asyncio.wait_for(waiter, self._response_timeout)
         except TimeoutError as exc:
             raise DriverTimeoutError(
                 f"{self.address}: нет кадра состояния за {self._response_timeout} с"
             ) from exc
         finally:
+            if not waiter.done():
+                waiter.cancel()
             self._state_waiter = None
+
+    async def reset_filter(self, *, expected_days: int | None) -> S4State:
+        """Сброс с чтением до/после; настройки сохраняются под одним локом.
+
+        expected_days — результат ранее проверенной прошивки, не параметр SET.
+        После возможной записи разрешено только контрольное чтение.
+        """
+        async with self._lock:
+            base = await self._request_state()
+            nonces = self._nonces()
+            waiter = self._new_waiter()
+            try:
+                await self._write_frame(
+                    encode_set_params(
+                        base,
+                        rand=nonces.rand,
+                        request_id=nonces.request_id,
+                        extra=nonces.extra,
+                        filter_reset=True,
+                    )
+                )
+                await asyncio.wait_for(waiter, self._response_timeout)
+            except (DriverError, TimeoutError):
+                log.warning("filter_reset_write_unconfirmed", address=self.address)
+            finally:
+                if not waiter.done():
+                    waiter.cancel()
+                self._state_waiter = None
+            try:
+                actual = await self._request_state()
+            except DriverError as exc:
+                raise FilterResetUnconfirmed(
+                    "Результат сброса не подтверждён: нет контрольного состояния. "
+                    "Не повторяйте сброс без проверки ресурса."
+                ) from exc
+            controls = (
+                "power",
+                "sound",
+                "light",
+                "heater",
+                "mode",
+                "heater_temp",
+                "fan_speed",
+            )
+            settings_match = all(
+                getattr(base, f) == getattr(actual, f) for f in controls
+            )
+            remaining = actual.filter_remain_seconds
+            log.info(
+                "filter_reset_readback",
+                address=self.address,
+                before_seconds=base.filter_remain_seconds,
+                after_seconds=remaining,
+                settings_preserved=settings_match,
+            )
+            if expected_days is None:
+                raise FilterResetUnconfirmed(
+                    "Контрольное состояние получено. Нужна проверка ресурса "
+                    "и настроек перед включением сброса для этой прошивки.",
+                    actual,
+                )
+            if (
+                not settings_match
+                or not expected_days * 86400 - 120 <= remaining <= expected_days * 86400
+            ):
+                raise FilterResetUnconfirmed(
+                    "Результат сброса не подтверждён: ресурс или настройки "
+                    "отличаются от ожидаемых. Проверьте состояние бризера.",
+                    actual,
+                )
+            return actual
 
     def _new_waiter(self) -> asyncio.Future[S4State]:
         waiter: asyncio.Future[S4State] = asyncio.get_running_loop().create_future()

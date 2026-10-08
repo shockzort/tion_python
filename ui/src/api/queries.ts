@@ -1,4 +1,5 @@
 // TanStack Query: ключи, запросы и мутации поверх REST
+import { useEffect } from 'react'
 
 import {
   useMutation,
@@ -14,6 +15,7 @@ import type {
   CommandResult,
   Device,
   FoundBreezer,
+  FoundQingping,
   Group,
   GroupCommandResult,
   Room,
@@ -167,6 +169,36 @@ export function useReleaseHold() {
       api<undefined>(`/api/devices/${uuid}/hold`, { method: 'DELETE' }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.devices }),
   })
+}
+
+export function useResetFilter() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ uuid, key }: { uuid: string; key: string }) =>
+      api<CommandResult>(`/api/devices/${uuid}/filter-reset`, {
+        method: 'POST', headers: { 'Idempotency-Key': key },
+      }),
+    retry: false,
+    onSettled: () => queryClient.invalidateQueries({ queryKey: keys.devices }),
+  })
+}
+
+export function useCommandStatus(id: number | null) {
+  const queryClient = useQueryClient()
+  const query = useQuery({
+    queryKey: ['command', id],
+    queryFn: () => api<CommandResult>(`/api/commands/${id}`),
+    enabled: id !== null,
+    refetchInterval: (query) =>
+      ['pending', 'running'].includes(query.state.data?.status ?? 'pending') ? 1000 : false,
+  })
+  const status = query.data?.status
+  useEffect(() => {
+    if (status && !['pending', 'running'].includes(status)) {
+      void queryClient.invalidateQueries({ queryKey: keys.devices })
+    }
+  }, [status, queryClient])
+  return query
 }
 
 export function useUpdateDevice() {
@@ -358,7 +390,7 @@ export function useSensors() {
 export function useAddSensor() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (body: { name: string; source_key: string }) =>
+    mutationFn: (body: { name: string; source_key: string; kind?: 'mqtt' | 'qingping_ble'; room_id?: number }) =>
       api<Sensor>('/api/sensors', { method: 'POST', json: body }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.sensors }),
   })
@@ -367,9 +399,15 @@ export function useAddSensor() {
 export function useUpdateSensor() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, body }: { id: number; body: { name?: string } }) =>
+    mutationFn: ({ id, body }: { id: number; body: { name?: string; room_id?: number | null } }) =>
       api<Sensor>(`/api/sensors/${id}`, { method: 'PATCH', json: body }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.sensors }),
+  })
+}
+
+export function useScanQingping() {
+  return useMutation({
+    mutationFn: () => api<FoundQingping[]>('/api/sensors/qingping/scan', { method: 'POST' }),
   })
 }
 

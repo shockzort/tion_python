@@ -70,6 +70,7 @@ function handleEvent(queryClient: QueryClient, event: WsEvent) {
     }
     case 'device.list_changed':
       void queryClient.invalidateQueries({ queryKey: keys.devices })
+      void queryClient.invalidateQueries({ queryKey: keys.sensors })
       break
     case 'command.finished':
       if (event.data.status !== 'done') {

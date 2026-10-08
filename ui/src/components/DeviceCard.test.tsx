@@ -44,7 +44,7 @@ describe('DeviceCard', () => {
     expect(screen.getByText('на связи')).toBeInTheDocument()
     expect(screen.getByRole('slider', { name: 'Скорость' })).toHaveValue('3')
     expect(screen.getByText('22°C')).toBeInTheDocument()
-    expect(screen.getByText(/фильтр 56 дн/)).toBeInTheDocument()
+    expect(screen.getByText(/фильтр: осталось 56 дн/)).toBeInTheDocument()
     expect(screen.getByText(/приток 21°C/)).toBeInTheDocument()
   })
 

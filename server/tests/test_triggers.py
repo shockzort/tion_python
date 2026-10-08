@@ -129,13 +129,15 @@ def test_window_across_midnight() -> None:
 
 async def engine_env(
     core: CoreEnv,
+    *,
+    clock: FakeClock | None = None,
 ) -> tuple[TriggerEngine, SensorIngest, Device, int]:
     """Бризер + датчик + движок; возвращает (движок, ingest, device, sensor_id)."""
     device = await core.registry.add_device(mac="FA:KE:00:00:00:01", name="Тест")
     await wait_for_condition(
         lambda: core.registry.connection(device.uuid) is ConnectionState.ONLINE
     )
-    clock = FakeClock(NOON)
+    clock = clock or FakeClock(NOON)
     # ingest и движок живут на одних часах — иначе sweep/кулдаун считают
     # от разных эпох
     ingest = SensorIngest(core.db, core.events, now=clock.now)
@@ -360,7 +362,8 @@ async def test_maintain_steps_speed_and_journal(core: CoreEnv) -> None:
 
 async def test_maintain_cooldown_gates_adjustments(core: CoreEnv) -> None:
     """Вторая корректировка не раньше кулдауна."""
-    engine, _ingest, device, sensor_id = await engine_env(core)
+    clock = FakeClock(NOON)
+    engine, _ingest, device, sensor_id = await engine_env(core, clock=clock)
     await wait_state_cached(core, device.uuid)
     async with core.db.session() as session:
         await TriggerRepo(session).create(
@@ -374,7 +377,9 @@ async def test_maintain_cooldown_gates_adjustments(core: CoreEnv) -> None:
         and snap.state is not None
         and snap.state.fan_speed == 4
     )
+    await clock.advance(60)
     assert await engine.evaluate(sensor_id, {"co2": 1100}, NOON + 60) == 0
+    await clock.advance(61)
     with core.events.subscribe(TOPIC_COMMAND_FINISHED) as sub:
         assert await engine.evaluate(sensor_id, {"co2": 1100}, NOON + 121) == 1
         event = await asyncio.wait_for(sub.get(), 5)
@@ -383,7 +388,8 @@ async def test_maintain_cooldown_gates_adjustments(core: CoreEnv) -> None:
 
 async def test_maintain_hold_skips_without_burning_cooldown(core: CoreEnv) -> None:
     """Под manual-hold — ни команды, ни записи в журнал, кулдаун цел."""
-    engine, _ingest, device, sensor_id = await engine_env(core)
+    clock = FakeClock(NOON)
+    engine, _ingest, device, sensor_id = await engine_env(core, clock=clock)
     await wait_state_cached(core, device.uuid)
     async with core.db.session() as session:
         await TriggerRepo(session).create(
@@ -398,6 +404,7 @@ async def test_maintain_hold_skips_without_burning_cooldown(core: CoreEnv) -> No
 
     # hold снят — регулирование продолжается сразу, без ожидания кулдауна
     core.holds.release(device.uuid)
+    await clock.advance(1)
     with core.events.subscribe(TOPIC_COMMAND_FINISHED) as sub:
         assert await engine.evaluate(sensor_id, {"co2": 1500}, NOON + 1) == 1
         event = await asyncio.wait_for(sub.get(), 5)
@@ -434,7 +441,8 @@ async def test_maintain_skips_unknown_and_offline_devices(core: CoreEnv) -> None
 
 async def test_maintain_window_gates_regulation(core: CoreEnv) -> None:
     """Вне окна регулятор молчит."""
-    engine, _ingest, device, sensor_id = await engine_env(core)
+    clock = FakeClock(NOON)
+    engine, _ingest, device, sensor_id = await engine_env(core, clock=clock)
     await wait_state_cached(core, device.uuid)
     async with core.db.session() as session:
         await TriggerRepo(session).create(
@@ -447,6 +455,7 @@ async def test_maintain_window_gates_regulation(core: CoreEnv) -> None:
         )
     assert await engine.evaluate(sensor_id, {"co2": 1500}, NOON) == 0
     night = datetime(2026, 7, 12, 23, 30, tzinfo=MSK).timestamp()
+    await clock.advance(night - NOON)
     with core.events.subscribe(TOPIC_COMMAND_FINISHED) as sub:
         assert await engine.evaluate(sensor_id, {"co2": 1500}, night) == 1
         await asyncio.wait_for(sub.get(), 5)
@@ -503,7 +512,8 @@ async def test_maintain_idempotent_same_measurement(core: CoreEnv) -> None:
 
 async def test_maintain_converges_to_power_off(core: CoreEnv) -> None:
     """speed_min=0: при низком CO₂ регулятор доводит бризер до выключения."""
-    engine, _ingest, device, sensor_id = await engine_env(core)
+    clock = FakeClock(NOON)
+    engine, _ingest, device, sensor_id = await engine_env(core, clock=clock)
     await wait_state_cached(core, device.uuid)
     async with core.db.session() as session:
         await TriggerRepo(session).create(
@@ -532,10 +542,12 @@ async def test_maintain_converges_to_power_off(core: CoreEnv) -> None:
                 )
 
             await wait_for_condition(cache_caught_up)
+            await clock.advance(121)
     final = core.cache.get(device.uuid)
     assert final is not None and final.state is not None
     assert final.state.power is False
     # выключен и CO₂ низкий — больше не трогаем
+    await clock.advance(121)
     assert await engine.evaluate(sensor_id, {"co2": 900}, ts + 121) == 0
 
 

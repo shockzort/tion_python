@@ -25,6 +25,7 @@ class DeviceView(BaseModel):
     state: dict[str, Any] | None
     state_at: float | None
     hold_until: float | None
+    filter_reset_supported: bool = False
 
     @classmethod
     def build(

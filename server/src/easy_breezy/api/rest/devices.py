@@ -31,7 +31,7 @@ router = APIRouter(
 
 def build_device_view(device: Device, container: AppContainer) -> DeviceView:
     snapshot = container.cache.get(device.uuid)
-    return DeviceView.build(
+    view = DeviceView.build(
         device,
         connection=container.registry.connection(device.uuid).value,
         state=(
@@ -42,6 +42,10 @@ def build_device_view(device: Device, container: AppContainer) -> DeviceView:
         state_at=snapshot.state_at if snapshot is not None else None,
         hold_until=container.holds.hold_until(device.uuid),
     )
+    view.filter_reset_supported = container.bus.filter_reset_supported(
+        device.uuid, device.model
+    )
+    return view
 
 
 async def get_active_device(device_uuid: str, container: AppContainer) -> Device:
@@ -143,6 +147,29 @@ async def release_hold(device_uuid: str, container: ContainerDep) -> None:
     """Кнопка «вернуть автоматику» (ADR-0005)."""
     await get_active_device(device_uuid, container)
     container.holds.release(device_uuid)
+
+
+@router.post("/devices/{device_uuid}/filter-reset")
+async def reset_filter(
+    device_uuid: str,
+    response: Response,
+    container: ContainerDep,
+    idempotency_key: str = Header(
+        alias="Idempotency-Key", min_length=1, max_length=100
+    ),
+) -> CommandResult:
+    await get_active_device(device_uuid, container)
+    try:
+        ticket = await container.bus.submit_filter_reset(
+            device_uuid=device_uuid,
+            idempotency_key=idempotency_key,
+        )
+    except CommandError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    result = await wait_outcome(container, ticket)
+    if result.status == "pending":
+        response.status_code = 202
+    return result
 
 
 # --- комнаты -------------------------------------------------------------

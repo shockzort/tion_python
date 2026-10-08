@@ -19,6 +19,14 @@ function makeSensor(overrides: Partial<Sensor> = {}): Sensor {
 }
 
 describe('SensorCard', () => {
+  it('новая температура не делает старый CO₂ свежим', () => {
+    render(<SensorCard sensor={makeSensor({ kind: 'qingping_ble', stale: true,
+      metric_stale: { co2: true, temperature: false, humidity: false } })} />)
+    expect(screen.getByText('950').parentElement?.className).toContain('text-slate-500')
+    expect(screen.getByText('24.3 °C').className).toContain('text-slate-300')
+    expect(screen.getByText('часть данных устарела')).toBeTruthy()
+    expect(screen.getByText('Qingping BLE')).toBeTruthy()
+  })
   it('показывает метрики с округлением', () => {
     render(<SensorCard sensor={makeSensor()} roomName="Гостиная" />)
     expect(screen.getByText('Гостиная CO₂')).toBeTruthy()

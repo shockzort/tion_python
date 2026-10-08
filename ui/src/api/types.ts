@@ -27,6 +27,7 @@ export type Device = {
   state: DeviceState | null
   state_at: number | null
   hold_until: number | null
+  filter_reset_supported?: boolean
 }
 
 export type Room = { id: number; name: string }
@@ -87,16 +88,25 @@ export type GroupCommandResult = {
 
 export type Sensor = {
   id: number
-  kind: 'magicair' | 'mqtt'
+  kind: 'magicair' | 'mqtt' | 'qingping_ble'
   name: string
   source_key: string
   room_id: number | null
   last_values: Partial<Record<'co2' | 'temperature' | 'humidity', number>> | null
   last_seen_at: number | null
+  last_metric_at?: Partial<Record<SensorMetric, number>> | null
+  metric_stale?: Record<SensorMetric, boolean>
   stale: boolean
 }
 
 export type SensorMetric = 'co2' | 'temperature' | 'humidity'
+
+export type FoundQingping = {
+  source_key: string
+  rssi: number
+  metrics: Partial<Record<SensorMetric, number>>
+  registered: boolean
+}
 
 export type TriggerKind = 'threshold' | 'maintain'
 

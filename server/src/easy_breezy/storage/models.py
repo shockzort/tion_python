@@ -202,7 +202,7 @@ class Sensor(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     kind: Mapped[str] = mapped_column(String(20))
-    """magicair | mqtt."""
+    """magicair | mqtt | qingping_ble."""
     name: Mapped[str] = mapped_column(String(100))
     source_key: Mapped[str] = mapped_column(String(200), unique=True)
     room_id: Mapped[int | None] = mapped_column(
@@ -210,6 +210,7 @@ class Sensor(Base):
     )
     last_values: Mapped[dict[str, Any] | None] = mapped_column(default=None)
     last_seen_at: Mapped[int | None] = mapped_column(default=None)
+    last_metric_at: Mapped[dict[str, Any] | None] = mapped_column(default=None)
 
 
 class TelemetryRaw(Base):
