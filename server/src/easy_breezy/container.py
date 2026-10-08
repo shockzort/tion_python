@@ -11,6 +11,8 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+import structlog
+
 from easy_breezy.auth import AuthService
 from easy_breezy.automation.clock import SystemClock
 from easy_breezy.automation.scenarios import ScenarioService
@@ -44,6 +46,8 @@ from easy_breezy.integrations.yandex.callbacks import YandexNotifier
 from easy_breezy.storage import Database
 from easy_breezy.storage.backup import BackupService
 from easy_breezy.storage.repos import DeviceRepo
+
+log = structlog.get_logger(__name__)
 
 
 @dataclass
@@ -95,6 +99,8 @@ class AppContainer:
         sd_notify(READY)  # Type=notify: сервис готов принимать запросы
 
     async def shutdown(self) -> None:
+        started = time.monotonic()
+        log.info("shutdown_started")
         await self.watchdog.stop()
         await self.backup.stop()
         await self.push.stop()
@@ -108,6 +114,7 @@ class AppContainer:
         await self.bus.stop()
         await self.registry.stop()
         await self.db.dispose()
+        log.info("shutdown_complete", elapsed_s=round(time.monotonic() - started, 2))
 
 
 def build_container(settings: Settings) -> AppContainer:

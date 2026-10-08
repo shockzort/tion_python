@@ -347,3 +347,30 @@ async def test_submit_validation(core: CoreEnv, device: Device) -> None:
             source=CommandSource.UI,
             idempotency_key="ui:ghost",
         )
+
+
+async def test_delta_uses_state_after_parallel_poll(
+    core: CoreEnv, device: Device
+) -> None:
+    from dataclasses import replace
+
+    supervisor = core.registry.supervisor(device.uuid)
+    assert supervisor is not None and supervisor.driver is not None
+    driver = supervisor.driver
+    assert driver.last_state is not None and driver.last_state.sound
+    physical = core.fleet.device(MAC)
+    physical.state = replace(physical.state, sound=False)
+    core.fleet.transport(MAC).write_delay = 0.05
+    poll = asyncio.create_task(driver.get_state())
+    await asyncio.sleep(0)  # опрос держит лок, но кэш пока старый
+    ticket = await core.bus.submit(
+        device_uuid=device.uuid,
+        delta=StateDelta(fan_speed=4),
+        source=CommandSource.UI,
+        idempotency_key="parallel-poll",
+    )
+    assert not (await poll).sound
+    outcome = await outcome_of(ticket)
+    assert outcome.status is CommandStatus.DONE
+    assert physical.state.fan_speed == 4
+    assert not physical.state.sound  # команда скорости не возвращает старый звук

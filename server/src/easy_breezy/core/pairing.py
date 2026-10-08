@@ -96,16 +96,19 @@ class BlePairingService:
             async with AsyncExitStack() as stack:
                 if self._scan_gate is not None:
                     await stack.enter_async_context(self._scan_gate)
-                await transport.pair()
+                # Cleanup выполняется до освобождения scan gate.
+                try:
+                    await transport.pair()
+                finally:
+                    try:
+                        await transport.disconnect()
+                    except TransportError as exc:
+                        log.warning(
+                            "pairing_disconnect_failed", mac=mac, error=str(exc)
+                        )
         except TransportError as exc:
             self._progress("failed", mac=mac, error=str(exc))
             raise PairingError(str(exc)) from exc
-        finally:
-            # пейринг поднимает соединение — отпускаем его супервизору
-            try:
-                await transport.disconnect()
-            except TransportError as exc:
-                log.debug("pairing_disconnect_failed", mac=mac, error=str(exc))
         self._progress("registering", mac=mac)
         device = await self._registry.add_device(mac=mac, name=name)
         self._progress("done", mac=mac, device_uuid=device.uuid)

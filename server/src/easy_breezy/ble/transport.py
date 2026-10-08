@@ -14,11 +14,13 @@ from typing import Protocol
 import structlog
 from bleak import BleakClient, BleakScanner
 from bleak.backends.device import BLEDevice
+from bleak.backends.scanner import AdvertisementData
 from bleak.exc import BleakError
 from dbus_fast import BusType, Message, MessageType, Variant
 from dbus_fast.aio import MessageBus
 
 from easy_breezy.ble._bluez_agent import AGENT_CAPABILITY, AGENT_PATH, JustWorksAgent
+from easy_breezy.ble.discovery import scanning
 
 log = structlog.get_logger("easy_breezy.ble")
 
@@ -75,6 +77,7 @@ class BleakTransport:
         self._connect_timeout = connect_timeout
         self._operation_timeout = operation_timeout
         self._client: BleakClient | None = None
+        self._ready = False
         self._queue: asyncio.Queue[bytes | None] = asyncio.Queue()
 
     @property
@@ -94,7 +97,7 @@ class BleakTransport:
         """Поиск устройства в эфире и подключение по объекту (паттерн BlueZ).
 
         Подключение по «голому» адресу ненадёжно (полевой факт смоука Фазы 1) —
-        сначала find_device_by_address, затем connect по BLEDevice.
+        сначала ограниченный по времени поиск, затем connect по BLEDevice.
         """
         self._queue = asyncio.Queue()
         device = await self._find_device()
@@ -102,16 +105,36 @@ class BleakTransport:
 
     async def _find_device(self) -> BLEDevice:
         """Найти устройство в эфире; занятый другим центральным не рекламируется."""
+        found = asyncio.Event()
+        device: BLEDevice | None = None
+
+        def on_advertisement(candidate: BLEDevice, _adv: AdvertisementData) -> None:
+            nonlocal device
+            if candidate.address.upper() == self._address.upper():
+                device = candidate
+                found.set()
+
+        started = asyncio.get_running_loop().time()
         try:
-            async with asyncio.timeout(15.0):
-                device = await BleakScanner.find_device_by_address(
-                    self._address, timeout=14.0
-                )
+            async with scanning(BleakScanner(detection_callback=on_advertisement)):
+                async with asyncio.timeout(14.0):
+                    await found.wait()
         except (BleakError, TimeoutError, OSError) as exc:
+            log.warning(
+                "device_search_failed",
+                address=self._address,
+                elapsed_s=round(asyncio.get_running_loop().time() - started, 2),
+                error_type=type(exc).__name__,
+                error=str(exc),
+            )
             raise TransportError(f"поиск {self._address} в эфире: {exc}") from exc
         if device is None:
             raise TransportError(f"{self._address} не найден в эфире")
-        log.debug("device_found", address=self._address, rssi=None)
+        log.info(
+            "device_found",
+            address=self._address,
+            elapsed_s=round(asyncio.get_running_loop().time() - started, 2),
+        )
         return device
 
     async def _attach(self, device: BLEDevice) -> None:
@@ -121,26 +144,40 @@ class BleakTransport:
             disconnected_callback=self._on_disconnect,
             timeout=self._connect_timeout,
         )
+        stage = "connect"
+        attached = False
+        started = asyncio.get_running_loop().time()
         try:
             async with asyncio.timeout(self._connect_timeout + 10):
                 await self._client.connect()
-        except (BleakError, TimeoutError, OSError) as exc:
-            raise TransportError(
-                f"LE-соединение с {self._address} не установлено "
-                f"(таймаут {self._connect_timeout} c): {exc}"
-            ) from exc
-        log.debug("le_connected", address=self._address)
-
-        try:
+            stage = "start_notify"
             async with asyncio.timeout(self._operation_timeout * 2):
                 await self._client.start_notify(self._notify_uuid, self._on_notify)
+            if not self._client.is_connected:
+                raise TransportError("соединение потеряно во время start_notify")
+            self._ready = True
+            attached = True
         except (BleakError, TimeoutError, OSError) as exc:
-            raise TransportError(
-                f"подписка на нотификации {self._address}: {exc}"
-            ) from exc
-        log.debug("transport_connected", address=self._address)
+            log.warning(
+                "transport_start_failed",
+                address=self._address,
+                stage=stage,
+                elapsed_s=round(asyncio.get_running_loop().time() - started, 2),
+                error_type=type(exc).__name__,
+                error=str(exc),
+            )
+            raise TransportError(f"{stage} {self._address}: {exc}") from exc
+        finally:
+            if not attached:
+                await self.disconnect()
+        log.info(
+            "transport_connected",
+            address=self._address,
+            elapsed_s=round(asyncio.get_running_loop().time() - started, 2),
+        )
 
     async def disconnect(self) -> None:
+        self._ready = False
         if self._client is None:
             return
         try:
@@ -151,6 +188,7 @@ class BleakTransport:
                 "transport_disconnect_failed", address=self._address, error=str(exc)
             )
         finally:
+            self._client = None
             self._queue.put_nowait(None)
 
     async def write(self, packet: bytes) -> None:
@@ -189,15 +227,19 @@ class BleakTransport:
                 f"сопряжение с {self._address}: поддерживается только BlueZ"
             )
         adapter_path = path.rsplit("/", 1)[0]
-        try:
-            bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
-        except OSError as exc:
-            raise TransportError(f"сопряжение с {self._address}: D-Bus: {exc}") from exc
+        bus = MessageBus(bus_type=BusType.SYSTEM)
         agent = JustWorksAgent()
-        was_pairable = True
+        was_pairable: bool | None = None
+        pair_started = False
+        paired = False
         try:
-            was_pairable = await self._enable_pairable(bus, adapter_path)
+            async with asyncio.timeout(self._operation_timeout):
+                await bus.connect()
+            was_pairable = await self._get_pairable(bus, adapter_path)
+            if not was_pairable:
+                await self._set_pairable(bus, adapter_path, True)
             await self._register_agent(bus, agent)
+            pair_started = True
             try:
                 async with asyncio.timeout(45.0):
                     reply = await bus.call(
@@ -218,14 +260,33 @@ class BleakTransport:
                 raise TransportError(
                     f"сопряжение с {self._address}: {reply.error_name}: {reply.body}"
                 )
+            paired = True
+        except (TimeoutError, OSError) as exc:
+            raise TransportError(f"сопряжение с {self._address}: D-Bus: {exc}") from exc
         finally:
-            await self._restore_adapter(bus, adapter_path, agent, was_pairable)
-            bus.disconnect()
+            try:
+                if pair_started and not paired:
+                    for member in ("CancelPairing", "Disconnect"):
+                        try:
+                            await self._adapter_call(
+                                bus, path, "org.bluez.Device1", member
+                            )
+                        except TransportError as exc:
+                            log.warning(
+                                "pair_cleanup_failed",
+                                address=self._address,
+                                stage=member,
+                                error=str(exc),
+                            )
+                if was_pairable is not None:
+                    await self._restore_adapter(bus, adapter_path, agent, was_pairable)
+            finally:
+                bus.disconnect()
         log.debug("paired", address=self._address)
         await self._attach(device)
 
-    @staticmethod
     async def _adapter_call(
+        self,
         bus: MessageBus,
         path: str,
         interface: str,
@@ -234,19 +295,25 @@ class BleakTransport:
         body: list[object] | None = None,
     ) -> Message | None:
         """Вызов метода BlueZ; ошибки транслируются вызывающему кодом ответа."""
-        return await bus.call(
-            Message(
-                destination="org.bluez",
-                path=path,
-                interface=interface,
-                member=member,
-                signature=signature,
-                body=body or [],
-            )
-        )
+        try:
+            async with asyncio.timeout(self._operation_timeout):
+                return await bus.call(
+                    Message(
+                        destination="org.bluez",
+                        path=path,
+                        interface=interface,
+                        member=member,
+                        signature=signature,
+                        body=body or [],
+                    )
+                )
+        except (TimeoutError, OSError) as exc:
+            raise TransportError(
+                f"BlueZ {member}: {type(exc).__name__}: {exc}"
+            ) from exc
 
-    async def _enable_pairable(self, bus: MessageBus, adapter_path: str) -> bool:
-        """Включает ``Pairable`` на адаптере; возвращает прежнее значение."""
+    async def _get_pairable(self, bus: MessageBus, adapter_path: str) -> bool:
+        """Читает исходное значение; неизвестное состояние не заменяется False."""
         reply = await self._adapter_call(
             bus,
             adapter_path,
@@ -255,22 +322,23 @@ class BleakTransport:
             "ss",
             ["org.bluez.Adapter1", "Pairable"],
         )
-        was_pairable = bool(
-            reply is not None
-            and reply.message_type is not MessageType.ERROR
-            and reply.body[0].value
+        if reply is None or reply.message_type is MessageType.ERROR:
+            raise TransportError("не удалось прочитать Pairable адаптера")
+        return bool(reply.body[0].value)
+
+    async def _set_pairable(
+        self, bus: MessageBus, adapter_path: str, value: bool
+    ) -> None:
+        reply = await self._adapter_call(
+            bus,
+            adapter_path,
+            "org.freedesktop.DBus.Properties",
+            "Set",
+            "ssv",
+            ["org.bluez.Adapter1", "Pairable", Variant("b", value)],
         )
-        if not was_pairable:
-            await self._adapter_call(
-                bus,
-                adapter_path,
-                "org.freedesktop.DBus.Properties",
-                "Set",
-                "ssv",
-                ["org.bluez.Adapter1", "Pairable", Variant("b", True)],
-            )
-            log.debug("adapter_pairable_enabled", adapter=adapter_path)
-        return was_pairable
+        if reply is None or reply.message_type is MessageType.ERROR:
+            raise TransportError("не удалось установить Pairable адаптера")
 
     async def _register_agent(self, bus: MessageBus, agent: JustWorksAgent) -> None:
         """Экспортирует и регистрирует JustWorks-агент (default — по возможности)."""
@@ -306,9 +374,9 @@ class BleakTransport:
         bus: MessageBus,
         adapter_path: str,
         agent: JustWorksAgent,
-        was_pairable: bool,
+        was_pairable: bool | None,
     ) -> None:
-        """Снимает агент и возвращает ``Pairable`` как было; сбои — в DEBUG-лог."""
+        """Независимо снимает агент и возвращает известное исходное Pairable."""
         try:
             reply = await self._adapter_call(
                 bus,
@@ -320,19 +388,15 @@ class BleakTransport:
             )
             if reply is not None and reply.message_type is MessageType.ERROR:
                 log.debug("agent_unregister_failed", error=reply.error_name)
+        except TransportError as exc:
+            log.warning("agent_unregister_failed", error=str(exc))
+        finally:
             bus.unexport(AGENT_PATH, agent)
-            if not was_pairable:
-                await self._adapter_call(
-                    bus,
-                    adapter_path,
-                    "org.freedesktop.DBus.Properties",
-                    "Set",
-                    "ssv",
-                    ["org.bluez.Adapter1", "Pairable", Variant("b", False)],
-                )
-                log.debug("adapter_pairable_restored", adapter=adapter_path)
-        except OSError as exc:
-            log.debug("adapter_restore_failed", error=str(exc))
+        if was_pairable is False:
+            try:
+                await self._set_pairable(bus, adapter_path, False)
+            except TransportError as exc:
+                log.warning("adapter_restore_failed", error=str(exc))
 
     async def unpair(self) -> None:
         """Удаление бонда; работает и без активного соединения (BlueZ)."""
@@ -348,5 +412,9 @@ class BleakTransport:
         self._queue.put_nowait(bytes(data))
 
     def _on_disconnect(self, _client: BleakClient) -> None:
-        log.debug("ble_disconnected", address=self._address)
-        self._queue.put_nowait(None)
+        log.info("ble_disconnected", address=self._address, session_ready=self._ready)
+        # Bleak повторяет неудачные соединения внутри connect(). Эти callbacks
+        # не должны завершать поток нотификаций будущей успешной сессии.
+        if self._ready:
+            self._ready = False
+            self._queue.put_nowait(None)

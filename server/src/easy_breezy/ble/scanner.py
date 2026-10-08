@@ -10,6 +10,7 @@ import structlog
 from bleak import BleakScanner
 from bleak.exc import BleakError
 
+from easy_breezy.ble.discovery import scanning
 from easy_breezy.ble.transport import TransportError
 
 log = structlog.get_logger("easy_breezy.ble")
@@ -65,8 +66,10 @@ async def scan(
         if gate is not None:
             await stack.enter_async_context(gate)
         try:
-            results = await BleakScanner.discover(timeout=duration, return_adv=True)
-        except (BleakError, OSError) as exc:
+            async with scanning(BleakScanner()) as active:
+                await asyncio.sleep(duration)
+                results = active.discovered_devices_and_advertisement_data
+        except (BleakError, OSError, TimeoutError) as exc:
             raise TransportError(f"скан не удался: {exc}") from exc
 
     found = [

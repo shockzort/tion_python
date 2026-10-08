@@ -9,6 +9,7 @@ services:
     image: easy-breezy:${EB_IMAGE_VERSION:?нет версии — деплой пишет deploy.env}
     network_mode: host          # BLE + LAN-доступ
     restart: unless-stopped
+    stop_grace_period: 60s      # BLE disconnect + остановка фоновых служб
     env_file: ./.env            # конфигурация приложения (EB_*)
     security_opt:
       - apparmor=unconfined     # docker-default на Ubuntu режет D-Bus (BlueZ)
@@ -17,6 +18,7 @@ services:
       - ./data:/app/server/data       # БД, бэкапы, VAPID-ключи
     environment:
       EB_DATA_DIR: /app/server/data
+      EB_LOG_DIR: /app/server/data/logs  # переживает compose down; ротация 10 MiB × 6
     healthcheck:                # индикация в docker ps; рестарт — watchdog-таймер
       test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/api/system/health', timeout=5)"]
       interval: 30s

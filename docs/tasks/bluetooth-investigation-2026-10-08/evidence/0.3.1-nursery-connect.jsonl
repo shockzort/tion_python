@@ -1,0 +1,25 @@
+{"address": "D0:60:0E:F7:EA:D4", "elapsed_s": 0.07, "event": "device_found", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:21:15.135958Z"}
+{"address": "D0:60:0E:F7:EA:D4", "event": "ble_disconnected", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:21:15.700335Z"}
+{"address": "D0:60:0E:F7:EA:D4", "event": "ble_disconnected", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:21:16.105226Z"}
+{"address": "D0:60:0E:F7:EA:D4", "event": "ble_disconnected", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:21:16.465213Z"}
+{"address": "D0:60:0E:F7:EA:D4", "elapsed_s": 2.63, "event": "transport_connected", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:21:17.765907Z"}
+{"address": "D0:60:0E:F7:EA:D4", "event": "ble_disconnected", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:21:21.802283Z"}
+{"address": "D0:60:0E:F7:EA:D4", "elapsed_s": 12.68, "event": "device_session_closed", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:21:21.802797Z"}
+{"address": "D0:60:0E:F7:EA:D4", "attempt": 1, "elapsed_s": 12.68, "error_type": "DriverError", "error": "D0:60:0E:F7:EA:D4: соединение разорвано", "event": "device_session_failed", "level": "warning", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:21:21.802991Z"}
+{"address": "D0:60:0E:F7:EA:D4", "state": "disconnected", "event": "connection_state", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:21:21.803160Z"}
+{"address": "D0:60:0E:F7:EA:D4", "attempt": 1, "delay": 1.12, "event": "reconnect_backoff", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:21:21.803321Z"}
+{"address": "D0:60:0E:F7:EA:D4", "state": "connecting", "event": "connection_state", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:21:22.920636Z"}
+{"address": "D0:60:0E:F7:EA:D4", "elapsed_s": 0.51, "event": "device_found", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:21:23.435066Z"}
+{"address": "D0:60:0E:F7:EA:D4", "event": "ble_disconnected", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:21:25.155125Z"}
+{"address": "D0:60:0E:F7:EA:D4", "elapsed_s": 3.2, "event": "transport_connected", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:21:26.632275Z"}
+{"address": "D0:60:0E:F7:EA:D4", "event": "ble_disconnected", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:21:28.792907Z"}
+{"address": "D0:60:0E:F7:EA:D4", "elapsed_s": 5.87, "event": "device_session_closed", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:21:28.793583Z"}
+{"address": "D0:60:0E:F7:EA:D4", "attempt": 2, "elapsed_s": 5.87, "error_type": "DriverError", "error": "D0:60:0E:F7:EA:D4: соединение разорвано", "event": "device_session_failed", "level": "warning", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:21:28.793737Z"}
+{"address": "D0:60:0E:F7:EA:D4", "state": "disconnected", "event": "connection_state", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:21:28.793927Z"}
+{"address": "D0:60:0E:F7:EA:D4", "attempt": 2, "delay": 2.03, "event": "reconnect_backoff", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:21:28.794079Z"}
+{"address": "D0:60:0E:F7:EA:D4", "state": "connecting", "event": "connection_state", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:21:30.819209Z"}
+{"address": "D0:60:0E:F7:EA:D4", "elapsed_s": 0.13, "event": "device_found", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:21:30.948594Z"}
+{"address": "D0:60:0E:F7:EA:D4", "elapsed_s": 1.22, "event": "transport_connected", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:21:32.168857Z"}
+{"address": "D0:60:0E:F7:EA:D4", "request_id": "4d18b484", "operation": "get", "elapsed_ms": 403, "event": "state_response", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:21:32.572208Z"}
+{"address": "D0:60:0E:F7:EA:D4", "state": "S4State(power=False, sound=False, light=False, heater=False, mode=<Mode.OUTSIDE: 'outside'>, heater_temp=23, fan_speed=2, in_temp=19, out_temp=23, filter_remain_seconds=15552000)", "event": "device_online", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:21:32.572581Z"}
+{"address": "D0:60:0E:F7:EA:D4", "state": "online", "event": "connection_state", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:21:32.572865Z"}

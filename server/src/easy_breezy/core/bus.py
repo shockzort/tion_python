@@ -38,6 +38,8 @@ import structlog
 from sqlalchemy.exc import IntegrityError
 
 from easy_breezy.ble.driver import (
+    COMMAND_EXECUTE_TIMEOUT,
+    COMMAND_LOCK_TIMEOUT,
     DriverError,
     DriverTimeoutError,
     FilterResetUnconfirmed,
@@ -161,7 +163,7 @@ class CommandBus:
         *,
         now: Callable[[], float] = time.time,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
-        execute_budget: float = 4.0,
+        execute_budget: float = COMMAND_EXECUTE_TIMEOUT,
         max_queue_depth: int = 8,
         offline_grace: float = 180.0,
         hold_defer: float = 3600.0,
@@ -492,7 +494,7 @@ class CommandBus:
                 error="Сброс не выполнен: бризер недоступен или истёк срок ожидания.",
             )
         try:
-            async with asyncio.timeout(15):
+            async with asyncio.timeout(self._budget + COMMAND_LOCK_TIMEOUT):
                 actual = await driver.reset_filter(expected_days=item.filter_reset_days)
         except FilterResetUnconfirmed as exc:
             return CommandOutcome(
@@ -517,11 +519,7 @@ class CommandBus:
 
     async def _apply(self, driver: S4Driver, delta: StateDelta) -> S4State:
         """Мерж дельты поверх фактического состояния и запись полного набора."""
-        async with asyncio.timeout(self._budget):
-            base = driver.last_state
-            if base is None:
-                base = await driver.get_state()
-            return await driver.set_state(delta.apply_to(base))
+        return await driver.update_state(delta.apply_to, execute_timeout=self._budget)
 
     def _grace_for(self, item: _QueueItem) -> float:
         """Сколько ждать возвращения устройства в эфир.

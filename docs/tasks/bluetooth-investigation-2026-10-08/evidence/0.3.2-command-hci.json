@@ -1,0 +1,80 @@
+[
+  {
+    "device": "4S гостиная",
+    "operation": "set",
+    "request_id": "98df090a",
+    "request_opcode": "3032",
+    "response_opcode": "3132",
+    "request_frame_hex": "17003a42303298df090a94214cdc1900001701b50009f1",
+    "response_frame_hex": "2f003a00313298df090a94214cdc39810017010e0f111e72c54308f5e72c043d3aed00862700600000000006003737",
+    "request_crc_ok": true,
+    "response_crc_ok": true,
+    "response_handle": "2048",
+    "last_tx_to_last_rx_ms": 322.94
+  },
+  {
+    "device": "4S гостиная",
+    "operation": "get",
+    "request_id": "7a83dc5f",
+    "request_opcode": "3232",
+    "response_opcode": "3132",
+    "request_frame_hex": "10003a8532327a83dc5f796681621bec",
+    "response_frame_hex": "2f003afd31327a83dc5f94214cdc39810017010e0f111e73c54308f6e72c043c3aed0088270060000000000600cc02",
+    "request_crc_ok": true,
+    "response_crc_ok": true,
+    "response_handle": "2048",
+    "last_tx_to_last_rx_ms": 221.92
+  },
+  {
+    "device": "4S детская",
+    "operation": "set",
+    "request_id": "54e7eab2",
+    "request_opcode": "3032",
+    "response_opcode": "3132",
+    "request_frame_hex": "17003a82303254e7eab2783fbcdc1800001702b5004e7c",
+    "response_frame_hex": "2f003a3d313254e7eab2783fbcdc38410017021317131e555f4208cbf12107004eed0000000060000000000600884e",
+    "request_crc_ok": true,
+    "response_crc_ok": true,
+    "response_handle": "2049",
+    "last_tx_to_last_rx_ms": 66.64
+  },
+  {
+    "device": "4S детская",
+    "operation": "get",
+    "request_id": "d4feb2ca",
+    "request_opcode": "3232",
+    "response_opcode": "3132",
+    "request_frame_hex": "10003ab53232d4feb2ca2df9a497e535",
+    "response_frame_hex": "2f003ab33132d4feb2ca783fbcdc38410017021317131e555f4208cbf12107004eed0000000060000000000600c75f",
+    "request_crc_ok": true,
+    "response_crc_ok": true,
+    "response_handle": "2049",
+    "last_tx_to_last_rx_ms": 220.75
+  },
+  {
+    "device": "4S спальня",
+    "operation": "set",
+    "request_id": "4b792522",
+    "request_opcode": "3032",
+    "response_opcode": "3132",
+    "request_frame_hex": "17003a5730324b792522f03b01551900001701b500a5b0",
+    "response_frame_hex": "2f003aca31324b792522f03b015539610017010f111520cecd1b087e784806e03aed0040260060000000000600fd28",
+    "request_crc_ok": true,
+    "response_crc_ok": true,
+    "response_handle": "2050",
+    "last_tx_to_last_rx_ms": 129.61
+  },
+  {
+    "device": "4S спальня",
+    "operation": "get",
+    "request_id": "2cdf70fc",
+    "request_opcode": "3232",
+    "response_opcode": "3132",
+    "request_frame_hex": "10003a9e32322cdf70fccf23ad574ce3",
+    "response_frame_hex": "2f003a4031322cdf70fcf03b015539610017010f111520cecd1b087e784806e03aed00402600600000000006003bb8",
+    "request_crc_ok": true,
+    "response_crc_ok": true,
+    "response_handle": "2050",
+    "last_tx_to_last_rx_ms": 86.5
+  }
+]

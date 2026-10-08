@@ -291,3 +291,62 @@ async def test_online_event_tracks_driver_availability() -> None:
     finally:
         await supervisor.stop()
     assert not supervisor.online.is_set()
+
+
+async def test_partial_start_cleanup_holds_gate_and_next_session_recovers() -> None:
+    from easy_breezy.ble.transport import TransportError
+
+    gate = asyncio.Lock()
+
+    class PartialStart(FakeTransport):
+        async def connect(self) -> None:
+            await super().connect()
+            raise TransportError("start_notify failed after connect")
+
+        async def disconnect(self) -> None:
+            if self.is_connected:
+                assert gate.locked()
+            await super().disconnect()
+
+    failed = PartialStart(FakeS4Device())
+    recovered = FakeTransport(FakeS4Device())
+    attempts = iter([failed, recovered])
+    supervisor = DeviceSupervisor(
+        lambda: next(attempts),
+        scan_gate=gate,
+        backoff_initial=0.01,
+        poll_interval=1000,
+        response_timeout=0.1,
+    )
+    supervisor.start()
+    try:
+        await _wait_for_state(supervisor, ConnectionState.ONLINE)
+        assert not failed.is_connected
+        assert recovered.is_connected and not gate.locked()
+    finally:
+        await supervisor.stop()
+    assert not recovered.is_connected
+
+
+async def test_cancelled_partial_start_disconnects_before_releasing_gate() -> None:
+    gate = asyncio.Lock()
+    connected = asyncio.Event()
+
+    class HangingStart(FakeTransport):
+        async def connect(self) -> None:
+            await super().connect()
+            connected.set()
+            await asyncio.Event().wait()
+
+        async def disconnect(self) -> None:
+            if self.is_connected:
+                assert gate.locked()
+            await super().disconnect()
+
+    transport = HangingStart(FakeS4Device())
+    supervisor = DeviceSupervisor(lambda: transport, scan_gate=gate)
+    supervisor.start()
+    await asyncio.wait_for(connected.wait(), 1)
+    await asyncio.wait_for(supervisor.stop(), 1)
+    assert not transport.is_connected and not gate.locked()
+    assert supervisor.driver is None and not supervisor.online.is_set()

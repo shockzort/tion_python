@@ -1,0 +1,95 @@
+{
+  "checked_at_unix": 1791452089.6442862,
+  "health": {
+    "status": "ok",
+    "version": "0.3.2",
+    "uptime_seconds": 352.486
+  },
+  "devices": [
+    {
+      "name": "4S гостиная",
+      "connection": "online",
+      "state_at": 1791452075.1225092,
+      "state": {
+        "power": true,
+        "sound": false,
+        "light": false,
+        "heater": false,
+        "mode": "outside",
+        "heater_temp": 23,
+        "fan_speed": 1,
+        "in_temp": 14,
+        "out_temp": 15,
+        "filter_remain_days": 179.9
+      },
+      "hold_until": null,
+      "filter_reset_supported": true
+    },
+    {
+      "name": "4S детская",
+      "connection": "online",
+      "state_at": 1791452077.1942596,
+      "state": {
+        "power": false,
+        "sound": false,
+        "light": false,
+        "heater": false,
+        "mode": "outside",
+        "heater_temp": 23,
+        "fan_speed": 2,
+        "in_temp": 19,
+        "out_temp": 23,
+        "filter_remain_days": 180.0
+      },
+      "hold_until": null,
+      "filter_reset_supported": true
+    },
+    {
+      "name": "4S спальня",
+      "connection": "online",
+      "state_at": 1791452077.602315,
+      "state": {
+        "power": true,
+        "sound": false,
+        "light": false,
+        "heater": false,
+        "mode": "outside",
+        "heater_temp": 23,
+        "fan_speed": 1,
+        "in_temp": 16,
+        "out_temp": 17,
+        "filter_remain_days": 179.9
+      },
+      "hold_until": null,
+      "filter_reset_supported": true
+    }
+  ],
+  "sensors": [
+    {
+      "kind": "magicair",
+      "name": "CO₂ спальня",
+      "stale": false,
+      "metric_stale": {
+        "co2": false,
+        "temperature": false,
+        "humidity": false
+      }
+    },
+    {
+      "kind": "magicair",
+      "name": "СО₂ гостиная",
+      "stale": false,
+      "metric_stale": {
+        "co2": false,
+        "temperature": false,
+        "humidity": false
+      }
+    }
+  ],
+  "get_counts_since_restart": {
+    "EC:82:9F:A4:90:14": 12,
+    "D0:60:0E:F7:EA:D4": 12,
+    "EB:B5:4E:13:31:B5": 12
+  },
+  "ble_warnings_errors_since_restart": []
+}

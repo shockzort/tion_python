@@ -1,10 +1,8 @@
 """Watchdog доступности BLE (NFR-4, план §7).
 
 Эскалация при полном молчании эфира: все сопряжённые бризеры офлайн
-дольше 10 минут → power-cycle BLE-адаптера через BlueZ D-Bus (лечит
-подвисший стек; полный сброс контроллера — btmgmt, ручная эскалация в
-runbook) → ещё 10 минут тишины → SIGTERM самому себе, дальше поднимает
-systemd (Restart=always).
+дольше 10 минут → power-cycle BLE-адаптера через BlueZ D-Bus → ещё
+10 минут тишины → SIGTERM самому себе, дальше поднимает Docker.
 
 Каждый тик пингует systemd-watchdog (WATCHDOG=1): зависание event loop
 диагностирует сам systemd (WatchdogSec=60 → SIGABRT → рестарт).
@@ -28,6 +26,8 @@ log = structlog.get_logger(__name__)
 
 CHECK_INTERVAL_SECONDS = 30.0
 ALL_OFFLINE_GRACE_SECONDS = 600.0
+DBUS_TIMEOUT_SECONDS = 5.0
+ADAPTER_RESET_TIMEOUT_SECONDS = 20.0
 
 
 def _terminate_self() -> None:
@@ -39,27 +39,35 @@ async def reset_bluetooth_adapters() -> bool:
     from dbus_fast import BusType, Variant
     from dbus_fast.aio import MessageBus
 
-    bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
+    bus = MessageBus(bus_type=BusType.SYSTEM)
     try:
-        introspection = await bus.introspect("org.bluez", "/")
-        root = bus.get_proxy_object("org.bluez", "/", introspection)
-        manager = root.get_interface("org.freedesktop.DBus.ObjectManager")
-        objects = await manager.call_get_managed_objects()  # type: ignore[attr-defined]
+        async with asyncio.timeout(DBUS_TIMEOUT_SECONDS):
+            await bus.connect()
+            introspection = await bus.introspect("org.bluez", "/")
+            root = bus.get_proxy_object("org.bluez", "/", introspection)
+            manager = root.get_interface("org.freedesktop.DBus.ObjectManager")
+            objects = await manager.call_get_managed_objects()  # type: ignore[attr-defined]
         adapters = [
             path for path, ifaces in objects.items() if "org.bluez.Adapter1" in ifaces
         ]
         for path in adapters:
-            proxy = bus.get_proxy_object(
-                "org.bluez", path, await bus.introspect("org.bluez", path)
-            )
+            async with asyncio.timeout(DBUS_TIMEOUT_SECONDS):
+                proxy = bus.get_proxy_object(
+                    "org.bluez", path, await bus.introspect("org.bluez", path)
+                )
             props = proxy.get_interface("org.freedesktop.DBus.Properties")
-            await props.call_set(  # type: ignore[attr-defined]
-                "org.bluez.Adapter1", "Powered", Variant("b", False)
-            )
-            await asyncio.sleep(1.0)
-            await props.call_set(  # type: ignore[attr-defined]
-                "org.bluez.Adapter1", "Powered", Variant("b", True)
-            )
+            try:
+                async with asyncio.timeout(DBUS_TIMEOUT_SECONDS):
+                    await props.call_set(  # type: ignore[attr-defined]
+                        "org.bluez.Adapter1", "Powered", Variant("b", False)
+                    )
+                await asyncio.sleep(1.0)
+            finally:
+                # Даже при отмене watchdog/таймауте off пытаемся вернуть питание.
+                async with asyncio.timeout(DBUS_TIMEOUT_SECONDS):
+                    await props.call_set(  # type: ignore[attr-defined]
+                        "org.bluez.Adapter1", "Powered", Variant("b", True)
+                    )
             log.warning("ble_adapter_power_cycled", adapter=path)
         return bool(adapters)
     finally:
@@ -136,7 +144,8 @@ class BleWatchdog:
             self._offline_since = now  # адаптеру — свежий грейс после ресета
             log.warning("watchdog_adapter_reset", offline_devices=len(connections))
             try:
-                await self._adapter_reset()
+                async with asyncio.timeout(ADAPTER_RESET_TIMEOUT_SECONDS):
+                    await self._adapter_reset()
             except Exception:
                 log.exception("watchdog_adapter_reset_failed")
             return

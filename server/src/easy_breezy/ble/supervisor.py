@@ -95,7 +95,10 @@ class DeviceSupervisor:
     async def run(self) -> None:
         """Бесконечный цикл подключения; завершается только отменой."""
         backoff = self._backoff_initial
+        attempt = 0
         while True:
+            attempt += 1
+            started = asyncio.get_running_loop().time()
             self._set_connection(ConnectionState.CONNECTING)
             self._session_healthy = False
             try:
@@ -104,6 +107,9 @@ class DeviceSupervisor:
                 log.warning(
                     "device_session_failed",
                     address=self.address,
+                    attempt=attempt,
+                    elapsed_s=round(asyncio.get_running_loop().time() - started, 2),
+                    error_type=type(exc).__name__,
                     error=str(exc),
                 )
             except asyncio.CancelledError:
@@ -121,7 +127,12 @@ class DeviceSupervisor:
                 backoff = self._backoff_initial
             delay = min(backoff, self._backoff_max)
             delay += delay * 0.25 * self._jitter()
-            log.debug("reconnect_backoff", address=self.address, delay=round(delay, 2))
+            log.info(
+                "reconnect_backoff",
+                address=self.address,
+                attempt=attempt,
+                delay=round(delay, 2),
+            )
             await self._sleep(delay)
             backoff = min(backoff * 2, self._backoff_max)
 
@@ -134,14 +145,15 @@ class DeviceSupervisor:
         driver.on_state = self._handle_state
         driver.on_disconnect = disconnected.set
 
-        # гейт держится только на время установления соединения
-        if self._scan_gate is not None:
-            async with self._scan_gate:
-                await driver.start()
-        else:
-            await driver.start()
-        self.driver = driver
+        started = asyncio.get_running_loop().time()
         try:
+            # start() закрывает частичное соединение до освобождения гейта.
+            if self._scan_gate is not None:
+                async with self._scan_gate:
+                    await driver.start()
+            else:
+                await driver.start()
+            self.driver = driver
             initial = await driver.get_state()
             log.info("device_online", address=self.address, state=initial)
             self._set_connection(ConnectionState.ONLINE)
@@ -150,6 +162,11 @@ class DeviceSupervisor:
             self.driver = None
             self.online.clear()  # драйвер снят раньше смены состояния
             await driver.close()
+            log.info(
+                "device_session_closed",
+                address=self.address,
+                elapsed_s=round(asyncio.get_running_loop().time() - started, 2),
+            )
 
     async def _poll_until_lost(
         self, driver: S4Driver, disconnected: asyncio.Event
@@ -165,6 +182,7 @@ class DeviceSupervisor:
             finally:
                 waiter.cancel()
                 sleeper.cancel()
+                await asyncio.gather(waiter, sleeper, return_exceptions=True)
             if disconnected.is_set():
                 break
             try:

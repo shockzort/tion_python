@@ -1,0 +1,117 @@
+{"event": "shutdown_started", "level": "info", "logger": "easy_breezy.container", "timestamp": "2026-10-08T09:26:32.530453Z"}
+{"address": "EC:82:9F:A4:90:14", "event": "ble_disconnected", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:26:34.789787Z"}
+{"address": "EC:82:9F:A4:90:14", "elapsed_s": 325.67, "event": "device_session_closed", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:26:34.790502Z"}
+{"address": "EC:82:9F:A4:90:14", "state": "disconnected", "event": "connection_state", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:26:34.790680Z"}
+{"address": "D0:60:0E:F7:EA:D4", "event": "ble_disconnected", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:26:34.837550Z"}
+{"address": "D0:60:0E:F7:EA:D4", "elapsed_s": 304.02, "event": "device_session_closed", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:26:34.838292Z"}
+{"address": "D0:60:0E:F7:EA:D4", "state": "disconnected", "event": "connection_state", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:26:34.838433Z"}
+{"address": "EB:B5:4E:13:31:B5", "event": "ble_disconnected", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:26:34.884621Z"}
+{"address": "EB:B5:4E:13:31:B5", "elapsed_s": 325.77, "event": "device_session_closed", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:26:34.885273Z"}
+{"address": "EB:B5:4E:13:31:B5", "state": "disconnected", "event": "connection_state", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:26:34.885416Z"}
+{"elapsed_s": 2.37, "event": "shutdown_complete", "level": "info", "logger": "easy_breezy.container", "timestamp": "2026-10-08T09:26:34.895507Z"}
+{"event": "service_stopped", "level": "info", "logger": "easy_breezy.app", "timestamp": "2026-10-08T09:26:34.895774Z"}
+{"path": "../ui/dist", "event": "ui_static_mounted", "level": "info", "logger": "easy_breezy.app", "timestamp": "2026-10-08T09:26:44.474537Z"}
+{"address": null, "state": "connecting", "event": "connection_state", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:26:44.599662Z"}
+{"address": null, "state": "connecting", "event": "connection_state", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:26:44.601002Z"}
+{"address": null, "state": "connecting", "event": "connection_state", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:26:44.601110Z"}
+{"version": "0.3.2", "fake_devices": 0, "event": "service_started", "level": "info", "logger": "easy_breezy.app", "timestamp": "2026-10-08T09:26:44.627238Z"}
+{"address": "EC:82:9F:A4:90:14", "elapsed_s": 0.51, "event": "device_found", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:26:45.111677Z"}
+{"address": "EC:82:9F:A4:90:14", "session_ready": false, "event": "ble_disconnected", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:26:45.683405Z"}
+{"address": "EC:82:9F:A4:90:14", "session_ready": false, "event": "ble_disconnected", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:26:51.127926Z"}
+{"address": "EC:82:9F:A4:90:14", "elapsed_s": 7.94, "event": "transport_connected", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:26:53.059386Z"}
+{"address": "EC:82:9F:A4:90:14", "request_id": "14e5e0d4", "operation": "get", "elapsed_ms": 90, "event": "state_response", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:26:53.150566Z"}
+{"address": "EC:82:9F:A4:90:14", "state": "S4State(power=True, sound=False, light=False, heater=False, mode=<Mode.OUTSIDE: 'outside'>, heater_temp=23, fan_speed=1, in_temp=14, out_temp=15, filter_remain_seconds=15546973)", "event": "device_online", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:26:53.150961Z"}
+{"address": "EC:82:9F:A4:90:14", "state": "online", "event": "connection_state", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:26:53.151155Z"}
+{"address": "D0:60:0E:F7:EA:D4", "elapsed_s": 0.12, "event": "device_found", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:26:53.179390Z"}
+{"address": "D0:60:0E:F7:EA:D4", "elapsed_s": 1.5, "event": "transport_connected", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:26:54.682814Z"}
+{"address": "EB:B5:4E:13:31:B5", "elapsed_s": 0.08, "event": "device_found", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:26:54.767801Z"}
+{"address": "D0:60:0E:F7:EA:D4", "request_id": "a5843baf", "operation": "get", "elapsed_ms": 180, "event": "state_response", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:26:54.862897Z"}
+{"address": "D0:60:0E:F7:EA:D4", "state": "S4State(power=False, sound=False, light=False, heater=False, mode=<Mode.OUTSIDE: 'outside'>, heater_temp=23, fan_speed=2, in_temp=19, out_temp=23, filter_remain_seconds=15552000)", "event": "device_online", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:26:54.863433Z"}
+{"address": "D0:60:0E:F7:EA:D4", "state": "online", "event": "connection_state", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:26:54.863594Z"}
+{"address": "EB:B5:4E:13:31:B5", "elapsed_s": 1.4, "event": "transport_connected", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:26:56.170544Z"}
+{"address": "EB:B5:4E:13:31:B5", "request_id": "020e71be", "operation": "get", "elapsed_ms": 90, "event": "state_response", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:26:56.261292Z"}
+{"address": "EB:B5:4E:13:31:B5", "state": "S4State(power=True, sound=False, light=False, heater=False, mode=<Mode.OUTSIDE: 'outside'>, heater_temp=23, fan_speed=1, in_temp=15, out_temp=17, filter_remain_seconds=15547134)", "event": "device_online", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:26:56.261665Z"}
+{"address": "EB:B5:4E:13:31:B5", "state": "online", "event": "connection_state", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:26:56.261838Z"}
+{"address": "EC:82:9F:A4:90:14", "request_id": "fef55eb3", "operation": "get", "elapsed_ms": 104, "event": "state_response", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:27:23.255927Z"}
+{"address": "D0:60:0E:F7:EA:D4", "request_id": "e8cef8bd", "operation": "get", "elapsed_ms": 552, "event": "state_response", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:27:25.417601Z"}
+{"address": "EC:82:9F:A4:90:14", "request_id": "98df090a", "operation": "set", "elapsed_ms": 326, "event": "state_response", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:27:25.731052Z"}
+{"address": "EC:82:9F:A4:90:14", "request_id": "7a83dc5f", "operation": "get", "elapsed_ms": 225, "event": "state_response", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:27:25.956219Z"}
+{"address": "D0:60:0E:F7:EA:D4", "request_id": "54e7eab2", "operation": "set", "elapsed_ms": 68, "event": "state_response", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:27:26.049241Z"}
+{"address": "D0:60:0E:F7:EA:D4", "request_id": "d4feb2ca", "operation": "get", "elapsed_ms": 224, "event": "state_response", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:27:26.272913Z"}
+{"address": "EB:B5:4E:13:31:B5", "request_id": "a7ceb2fd", "operation": "get", "elapsed_ms": 57, "event": "state_response", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:27:26.321398Z"}
+{"address": "EB:B5:4E:13:31:B5", "request_id": "4b792522", "operation": "set", "elapsed_ms": 133, "event": "state_response", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:27:26.456262Z"}
+{"address": "EB:B5:4E:13:31:B5", "request_id": "2cdf70fc", "operation": "get", "elapsed_ms": 89, "event": "state_response", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:27:26.545901Z"}
+{"address": "EC:82:9F:A4:90:14", "request_id": "4e082e26", "operation": "get", "elapsed_ms": 103, "event": "state_response", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:27:53.361230Z"}
+{"address": "D0:60:0E:F7:EA:D4", "request_id": "36d89deb", "operation": "get", "elapsed_ms": 59, "event": "state_response", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:27:55.478612Z"}
+{"address": "EB:B5:4E:13:31:B5", "request_id": "f7b4d47d", "operation": "get", "elapsed_ms": 147, "event": "state_response", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:27:56.470853Z"}
+{"address": "EC:82:9F:A4:90:14", "request_id": "e4987b79", "operation": "get", "elapsed_ms": 372, "event": "state_response", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:28:23.735809Z"}
+{"address": "D0:60:0E:F7:EA:D4", "request_id": "804bcf25", "operation": "get", "elapsed_ms": 57, "event": "state_response", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:28:25.537743Z"}
+{"address": "EB:B5:4E:13:31:B5", "request_id": "a3c9278f", "operation": "get", "elapsed_ms": 58, "event": "state_response", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:28:26.531412Z"}
+{"event": "shutdown_started", "level": "info", "logger": "easy_breezy.container", "timestamp": "2026-10-08T09:28:44.617312Z"}
+{"address": "EC:82:9F:A4:90:14", "session_ready": false, "event": "ble_disconnected", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:28:46.865768Z"}
+{"address": "EC:82:9F:A4:90:14", "elapsed_s": 122.27, "event": "device_session_closed", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:28:46.866604Z"}
+{"address": "EC:82:9F:A4:90:14", "state": "disconnected", "event": "connection_state", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:28:46.866775Z"}
+{"address": "D0:60:0E:F7:EA:D4", "session_ready": false, "event": "ble_disconnected", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:28:46.913700Z"}
+{"address": "D0:60:0E:F7:EA:D4", "elapsed_s": 122.31, "event": "device_session_closed", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:28:46.914508Z"}
+{"address": "D0:60:0E:F7:EA:D4", "state": "disconnected", "event": "connection_state", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:28:46.914662Z"}
+{"address": "EB:B5:4E:13:31:B5", "session_ready": false, "event": "ble_disconnected", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:28:46.960639Z"}
+{"address": "EB:B5:4E:13:31:B5", "elapsed_s": 122.36, "event": "device_session_closed", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:28:46.961257Z"}
+{"address": "EB:B5:4E:13:31:B5", "state": "disconnected", "event": "connection_state", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:28:46.961381Z"}
+{"elapsed_s": 2.36, "event": "shutdown_complete", "level": "info", "logger": "easy_breezy.container", "timestamp": "2026-10-08T09:28:46.976709Z"}
+{"event": "service_stopped", "level": "info", "logger": "easy_breezy.app", "timestamp": "2026-10-08T09:28:46.976850Z"}
+{"path": "../ui/dist", "event": "ui_static_mounted", "level": "info", "logger": "easy_breezy.app", "timestamp": "2026-10-08T09:28:56.617232Z"}
+{"address": null, "state": "connecting", "event": "connection_state", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:28:56.738990Z"}
+{"address": null, "state": "connecting", "event": "connection_state", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:28:56.740884Z"}
+{"address": null, "state": "connecting", "event": "connection_state", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:28:56.741012Z"}
+{"version": "0.3.2", "fake_devices": 0, "event": "service_started", "level": "info", "logger": "easy_breezy.app", "timestamp": "2026-10-08T09:28:56.766689Z"}
+{"address": "EC:82:9F:A4:90:14", "elapsed_s": 0.45, "event": "device_found", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:28:57.191430Z"}
+{"address": "EC:82:9F:A4:90:14", "elapsed_s": 4.88, "event": "transport_connected", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:29:02.075881Z"}
+{"address": "D0:60:0E:F7:EA:D4", "elapsed_s": 0.06, "event": "device_found", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:29:02.141085Z"}
+{"address": "EC:82:9F:A4:90:14", "request_id": "941beb01", "operation": "get", "elapsed_ms": 269, "event": "state_response", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:29:02.345582Z"}
+{"address": "EC:82:9F:A4:90:14", "state": "S4State(power=True, sound=False, light=False, heater=False, mode=<Mode.OUTSIDE: 'outside'>, heater_temp=23, fan_speed=1, in_temp=14, out_temp=15, filter_remain_seconds=15546845)", "event": "device_online", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:29:02.345991Z"}
+{"address": "EC:82:9F:A4:90:14", "state": "online", "event": "connection_state", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:29:02.346124Z"}
+{"address": "D0:60:0E:F7:EA:D4", "session_ready": false, "event": "ble_disconnected", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:29:02.486243Z"}
+{"address": "D0:60:0E:F7:EA:D4", "session_ready": false, "event": "ble_disconnected", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:29:02.845795Z"}
+{"address": "D0:60:0E:F7:EA:D4", "session_ready": false, "event": "ble_disconnected", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:29:03.206098Z"}
+{"address": "D0:60:0E:F7:EA:D4", "elapsed_s": 3.18, "event": "transport_connected", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:29:05.317633Z"}
+{"address": "EB:B5:4E:13:31:B5", "elapsed_s": 0.06, "event": "device_found", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:29:05.378950Z"}
+{"address": "D0:60:0E:F7:EA:D4", "request_id": "20641c6c", "operation": "get", "elapsed_ms": 179, "event": "state_response", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:29:05.496909Z"}
+{"address": "D0:60:0E:F7:EA:D4", "state": "S4State(power=False, sound=False, light=False, heater=False, mode=<Mode.OUTSIDE: 'outside'>, heater_temp=23, fan_speed=2, in_temp=19, out_temp=23, filter_remain_seconds=15552000)", "event": "device_online", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:29:05.497304Z"}
+{"address": "D0:60:0E:F7:EA:D4", "state": "online", "event": "connection_state", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:29:05.497467Z"}
+{"address": "EB:B5:4E:13:31:B5", "elapsed_s": 1.2, "event": "transport_connected", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:29:06.580813Z"}
+{"address": "EB:B5:4E:13:31:B5", "request_id": "a70364e0", "operation": "get", "elapsed_ms": 91, "event": "state_response", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:29:06.671698Z"}
+{"address": "EB:B5:4E:13:31:B5", "state": "S4State(power=True, sound=False, light=False, heater=False, mode=<Mode.OUTSIDE: 'outside'>, heater_temp=23, fan_speed=1, in_temp=15, out_temp=17, filter_remain_seconds=15547005)", "event": "device_online", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:29:06.672115Z"}
+{"address": "EB:B5:4E:13:31:B5", "state": "online", "event": "connection_state", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:29:06.672292Z"}
+{"address": "EC:82:9F:A4:90:14", "request_id": "41ad8859", "operation": "get", "elapsed_ms": 147, "event": "state_response", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:29:32.495875Z"}
+{"address": "D0:60:0E:F7:EA:D4", "request_id": "a1a31a69", "operation": "get", "elapsed_ms": 105, "event": "state_response", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:29:35.603396Z"}
+{"address": "EB:B5:4E:13:31:B5", "request_id": "cd68673f", "operation": "get", "elapsed_ms": 58, "event": "state_response", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:29:36.731533Z"}
+{"address": "EC:82:9F:A4:90:14", "request_id": "619ad358", "operation": "get", "elapsed_ms": 328, "event": "state_response", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:30:02.825964Z"}
+{"address": "D0:60:0E:F7:EA:D4", "request_id": "44d67730", "operation": "get", "elapsed_ms": 146, "event": "state_response", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:30:05.752332Z"}
+{"address": "EB:B5:4E:13:31:B5", "request_id": "e23dddc5", "operation": "get", "elapsed_ms": 58, "event": "state_response", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:30:06.791490Z"}
+{"address": "EC:82:9F:A4:90:14", "request_id": "f6791ed2", "operation": "get", "elapsed_ms": 283, "event": "state_response", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:30:33.111236Z"}
+{"address": "D0:60:0E:F7:EA:D4", "request_id": "ff8785c1", "operation": "get", "elapsed_ms": 240, "event": "state_response", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:30:35.994826Z"}
+{"address": "EB:B5:4E:13:31:B5", "request_id": "e107eb44", "operation": "get", "elapsed_ms": 59, "event": "state_response", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:30:36.851881Z"}
+{"address": "EC:82:9F:A4:90:14", "request_id": "7caad99c", "operation": "get", "elapsed_ms": 282, "event": "state_response", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:31:03.395426Z"}
+{"address": "D0:60:0E:F7:EA:D4", "request_id": "5110e69d", "operation": "get", "elapsed_ms": 327, "event": "state_response", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:31:06.324187Z"}
+{"address": "EB:B5:4E:13:31:B5", "request_id": "7eca89c3", "operation": "get", "elapsed_ms": 147, "event": "state_response", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:31:07.001486Z"}
+{"address": "EC:82:9F:A4:90:14", "request_id": "da5b9684", "operation": "get", "elapsed_ms": 194, "event": "state_response", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:31:33.590798Z"}
+{"address": "D0:60:0E:F7:EA:D4", "request_id": "6a835b79", "operation": "get", "elapsed_ms": 104, "event": "state_response", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:31:36.430198Z"}
+{"address": "EB:B5:4E:13:31:B5", "request_id": "2bf8d5a8", "operation": "get", "elapsed_ms": 102, "event": "state_response", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:31:37.105896Z"}
+{"address": "EC:82:9F:A4:90:14", "request_id": "8fd9301b", "operation": "get", "elapsed_ms": 149, "event": "state_response", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:32:03.740736Z"}
+{"address": "D0:60:0E:F7:EA:D4", "request_id": "b620c856", "operation": "get", "elapsed_ms": 147, "event": "state_response", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:32:06.579596Z"}
+{"address": "EB:B5:4E:13:31:B5", "request_id": "42123bf2", "operation": "get", "elapsed_ms": 148, "event": "state_response", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:32:07.256545Z"}
+{"address": "EC:82:9F:A4:90:14", "request_id": "594f2ddf", "operation": "get", "elapsed_ms": 329, "event": "state_response", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:32:34.070817Z"}
+{"address": "D0:60:0E:F7:EA:D4", "request_id": "416b3edb", "operation": "get", "elapsed_ms": 148, "event": "state_response", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:32:36.729232Z"}
+{"address": "EB:B5:4E:13:31:B5", "request_id": "5bbde8b2", "operation": "get", "elapsed_ms": 101, "event": "state_response", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:32:37.360531Z"}
+{"address": "EC:82:9F:A4:90:14", "request_id": "a8f9b54d", "operation": "get", "elapsed_ms": 238, "event": "state_response", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:33:04.310985Z"}
+{"address": "D0:60:0E:F7:EA:D4", "request_id": "ddde7c54", "operation": "get", "elapsed_ms": 58, "event": "state_response", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:33:06.789733Z"}
+{"address": "EB:B5:4E:13:31:B5", "request_id": "b282940d", "operation": "get", "elapsed_ms": 59, "event": "state_response", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:33:07.421256Z"}
+{"address": "EC:82:9F:A4:90:14", "request_id": "92f8ca1a", "operation": "get", "elapsed_ms": 374, "event": "state_response", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:33:34.686536Z"}
+{"address": "D0:60:0E:F7:EA:D4", "request_id": "7e030a7f", "operation": "get", "elapsed_ms": 237, "event": "state_response", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:33:37.029114Z"}
+{"address": "EB:B5:4E:13:31:B5", "request_id": "b79b4b27", "operation": "get", "elapsed_ms": 58, "event": "state_response", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:33:37.481234Z"}
+{"address": "EC:82:9F:A4:90:14", "request_id": "5f303cb4", "operation": "get", "elapsed_ms": 194, "event": "state_response", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:34:04.882335Z"}
+{"address": "D0:60:0E:F7:EA:D4", "request_id": "eaa9eb51", "operation": "get", "elapsed_ms": 103, "event": "state_response", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:34:07.133663Z"}
+{"address": "EB:B5:4E:13:31:B5", "request_id": "43409d22", "operation": "get", "elapsed_ms": 58, "event": "state_response", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:34:07.541223Z"}
+{"address": "EC:82:9F:A4:90:14", "request_id": "367ce45c", "operation": "get", "elapsed_ms": 238, "event": "state_response", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:34:35.122061Z"}
+{"address": "D0:60:0E:F7:EA:D4", "request_id": "a2dd40e9", "operation": "get", "elapsed_ms": 58, "event": "state_response", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:34:37.193952Z"}
+{"address": "EB:B5:4E:13:31:B5", "request_id": "cd7d675d", "operation": "get", "elapsed_ms": 59, "event": "state_response", "level": "info", "logger": "easy_breezy.ble", "timestamp": "2026-10-08T09:34:37.602025Z"}

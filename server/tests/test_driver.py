@@ -149,3 +149,149 @@ async def test_serialized_operations() -> None:
         )
     assert all(state == device.state for state in results)
     assert len(device.received_frames) == 3
+
+
+async def test_expired_response_cannot_complete_new_request_or_refresh_cache() -> None:
+    device = FakeS4Device()
+    device.drop_responses = 2
+    transport = FakeTransport(device)
+    driver = S4Driver(transport, response_timeout=0.1)
+    received: list[S4State] = []
+    driver.on_state = received.append
+    async with driver:
+        with pytest.raises(DriverTimeoutError):
+            await driver.get_state()
+        old_id = device.received_frames[0].request_id
+        pending = asyncio.create_task(driver.get_state())
+        await _wait_frames(device, 2)
+        new_id = device.received_frames[1].request_id
+        assert old_id != new_id
+        for packet in device.state_packets(old_id):
+            driver._handle_packet(packet)
+        assert driver.last_state is None
+        assert not received and not pending.done()
+
+        # Push остаётся полезным, но не подтверждает активный GET.
+        for packet in device.state_packets():
+            driver._handle_packet(packet)
+        assert driver.last_state == DEFAULT_STATE
+        assert not pending.done()
+        device.state = dataclasses.replace(DEFAULT_STATE, fan_speed=5)
+        for packet in device.state_packets(new_id):
+            driver._handle_packet(packet)
+        assert (await pending).fan_speed == 5
+        for packet in FakeS4Device().state_packets(old_id):
+            driver._handle_packet(packet)
+        assert driver.last_state.fan_speed == 5
+
+
+async def _wait_frames(device: FakeS4Device, count: int) -> None:
+    async with asyncio.timeout(1):
+        while len(device.received_frames) < count:
+            await asyncio.sleep(0)
+
+
+async def test_late_set_ack_cannot_replace_readback() -> None:
+    class SilentReadback(FakeS4Device):
+        def handle_packet(self, packet: bytes) -> list[bytes]:
+            super().handle_packet(packet)
+            return []
+
+    device = SilentReadback()
+    driver = S4Driver(FakeTransport(device), response_timeout=0.1)
+    async with driver:
+        pending = asyncio.create_task(
+            driver.set_state(dataclasses.replace(DEFAULT_STATE, fan_speed=6))
+        )
+        await _wait_frames(device, 2)
+        set_id, get_id = (f.request_id for f in device.received_frames)
+        for packet in FakeS4Device().state_packets(set_id):
+            driver._handle_packet(packet)
+        assert driver.last_state is None and not pending.done()
+        for packet in device.state_packets(get_id):
+            driver._handle_packet(packet)
+        assert (await pending).fan_speed == 6
+
+
+async def test_write_failure_cleans_waiter_and_readback_checks_applied_set() -> None:
+    from easy_breezy.ble.driver import DriverError
+    from easy_breezy.ble.transport import TransportError
+
+    class AmbiguousWrite(FakeTransport):
+        async def write(self, packet: bytes) -> None:
+            before = len(self.device.received_frames)
+            await super().write(packet)
+            if len(self.device.received_frames) > before and (
+                self.device.received_frames[-1].opcode == OPCODE_SET_PARAMS
+            ):
+                raise TransportError("запись выполнена, подтверждение потеряно")
+
+    device = FakeS4Device()
+    driver = S4Driver(AmbiguousWrite(device))
+    async with driver:
+        result = await driver.set_state(dataclasses.replace(DEFAULT_STATE, fan_speed=4))
+        assert result.fan_speed == 4
+        assert [f.opcode for f in device.received_frames] == [
+            OPCODE_SET_PARAMS,
+            OPCODE_REQUEST_PARAMS,
+        ]
+        assert driver._state_waiter is None
+
+    failed, transport, _ = make_driver()
+    transport.fail_writes = True
+    async with failed:
+        with pytest.raises(DriverError):
+            await failed.set_state(DEFAULT_STATE)
+        assert failed._state_waiter is None and failed._request_id is None
+
+
+async def test_cancelled_set_cleans_waiter_and_releases_lock() -> None:
+    driver, transport, _ = make_driver()
+    transport.write_delay = 1
+    async with driver:
+        pending = asyncio.create_task(driver.set_state(DEFAULT_STATE))
+        await asyncio.sleep(0)
+        waiter = driver._state_waiter
+        assert waiter is not None
+        pending.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await pending
+        assert waiter.cancelled() and driver._state_waiter is None
+        transport.write_delay = 0
+        assert await driver.get_state() == DEFAULT_STATE
+
+
+async def test_default_budget_covers_silent_set_and_slow_readback() -> None:
+    class SlowReadback(FakeTransport):
+        async def write(self, packet: bytes) -> None:
+            # SET из двух пакетов проходит сразу; контрольный GET — через 1.18 с.
+            if self.device.received_frames:
+                await asyncio.sleep(1.18)
+            await super().write(packet)
+
+    device = FakeS4Device()
+    device.push_state_after_set = False
+    driver = S4Driver(SlowReadback(device))  # реальные 3 секунды ожидания ACK
+    async with driver:
+        driver.last_state = DEFAULT_STATE
+        actual = await driver.update_state(
+            lambda base: dataclasses.replace(base, fan_speed=4)
+        )
+        assert actual.fan_speed == 4
+        assert sum(f.opcode == OPCODE_SET_PARAMS for f in device.received_frames) == 1
+
+
+async def test_waiting_for_poll_does_not_consume_execution_budget() -> None:
+    driver, transport, _ = make_driver()
+    transport.write_delay = 0.06
+    async with driver:
+        poll = asyncio.create_task(driver.get_state())
+        await asyncio.sleep(0)
+        command = asyncio.create_task(
+            driver.update_state(
+                lambda base: dataclasses.replace(base, fan_speed=4),
+                execute_timeout=0.21,
+            )
+        )
+        await poll
+        assert (await command).fan_speed == 4  # ~0.24 с вместе, SET+GET ~0.18 с
