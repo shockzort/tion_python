@@ -20,6 +20,7 @@ function makeSensor(overrides: Partial<Sensor> = {}): Sensor {
 }
 
 const value = (text: string) => screen.getByText(text).className
+const color = (text: string) => screen.getByText(text).style.color
 
 describe('SensorCard', () => {
   it('новая температура не делает старый CO₂ свежим', () => {
@@ -32,7 +33,8 @@ describe('SensorCard', () => {
       />,
     )
     expect(value('950')).toContain('text-slate-500')
-    expect(value('24,3')).toContain('text-slate-200')
+    expect(color('950')).toBe('')
+    expect(color('24,3')).toBe('rgb(52, 211, 153)')
     expect(screen.getByText('часть данных устарела')).toBeTruthy()
   })
 
@@ -56,17 +58,14 @@ describe('SensorCard', () => {
       />,
     )
     expect(screen.getByText('PM2.5')).toBeTruthy()
-    expect(value('48')).toContain('text-rose-400')
+    expect(color('48')).toBe('rgb(251, 166, 46)')
     expect(screen.getByText('64 %')).toBeTruthy()
   })
 
-  it('подсвечивает CO₂ по бытовой шкале', () => {
-    const { rerender } = render(<SensorCard sensor={makeSensor({ last_values: { co2: 600 } })} />)
-    expect(value('600')).toContain('text-emerald-400')
-    rerender(<SensorCard sensor={makeSensor({ last_values: { co2: 900 } })} />)
-    expect(value('900')).toContain('text-amber-400')
-    rerender(<SensorCard sensor={makeSensor({ last_values: { co2: 1400 } })} />)
-    expect(value('1 400')).toContain('text-rose-400')
+  it('красит значение по шкале метрики, устаревшее — без цвета', () => {
+    render(<SensorCard sensor={makeSensor({ last_values: { co2: 600, temperature: 22.5 } })} />)
+    expect(color('600')).toBe('rgb(52, 211, 153)')
+    expect(color('22,5')).toBe('rgb(52, 211, 153)')
   })
 
   it('стейл гасит значение и показывает бейдж', () => {

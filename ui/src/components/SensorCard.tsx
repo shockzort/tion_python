@@ -1,13 +1,6 @@
 import type { Sensor } from '../api/types'
-import { formatValue, METRIC_INFO, METRIC_ORDER, quality, type Quality, type SensorMetric } from '../lib/metrics'
+import { formatValue, METRIC_INFO, METRIC_ORDER, metricColor, type SensorMetric } from '../lib/metrics'
 import { Badge, Card } from './ui'
-
-const QUALITY_TONE: Record<Quality, string> = {
-  good: 'text-emerald-400',
-  fair: 'text-amber-400',
-  poor: 'text-rose-400',
-  neutral: 'text-slate-200',
-}
 
 export default function SensorCard({ sensor, roomName }: { sensor: Sensor; roomName?: string }) {
   const values = sensor.last_values ?? {}
@@ -32,7 +25,7 @@ export default function SensorCard({ sensor, roomName }: { sensor: Sensor; roomN
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
           {battery !== undefined && battery < 100 && (
-            <span className="text-xs text-slate-500" title="Заряд батареи">
+            <span className="text-xs text-slate-500" style={{ color: metricColor('battery', battery) ?? undefined }} title="Заряд батареи">
               {formatValue('battery', battery)} %
             </span>
           )}
@@ -43,11 +36,16 @@ export default function SensorCard({ sensor, roomName }: { sensor: Sensor; roomN
         <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
           {shown.map((metric) => {
             const value = values[metric] as number
-            const tone = stale(metric) ? 'text-slate-500' : QUALITY_TONE[quality(metric, value)]
+            const color = stale(metric) ? null : metricColor(metric, value)
+            const tone = stale(metric) ? 'text-slate-500' : 'text-slate-200'
             return (
               <div key={metric} title={age(metric)} className="flex flex-col rounded-xl bg-slate-950/70 px-3 py-2">
                 <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">{METRIC_INFO[metric].short}</span>
-                <span className={`text-[1.35rem] font-extrabold tabular-nums ${tone}`} data-metric={metric}>
+                <span
+                  className={`text-[1.35rem] font-extrabold tabular-nums transition-colors ${tone}`}
+                  style={color === null ? undefined : { color }}
+                  data-metric={metric}
+                >
                   {formatValue(metric, value)}
                 </span>
                 <span className="text-[11px] text-slate-400">{METRIC_INFO[metric].unit}</span>
