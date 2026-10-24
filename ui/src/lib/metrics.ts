@@ -8,9 +8,10 @@ export type SensorMetric = 'co2' | 'temperature' | 'humidity' | 'pm25' | 'pm10' 
 type Stop = [number, string]
 
 // Палитра под тёмный фон (Tailwind *-400): холод/сырость — синий,
-// норма — зелёный, дальше жёлтый → оранжевый → красный.
+// норма — зелёный (комфорт температуры/влажности — тёплый салатовый), дальше жёлтый → оранжевый → красный.
 const BLUE = '#60a5fa'
 const GREEN = '#34d399'
+const LIME = '#9bd86a'
 const YELLOW = '#facc15'
 const ORANGE = '#fb923c'
 const RED = '#f87171'
@@ -33,12 +34,12 @@ export const METRIC_INFO: Record<SensorMetric, MetricInfo> = {
   // < 20 прохладно, 20–25 комфорт, 26+ жарко
   temperature: {
     label: 'Температура', short: 'Темп.', unit: '°C', digits: 1,
-    scale: [[17, BLUE], [20, GREEN], [25, GREEN], [26.5, YELLOW], [28, ORANGE], [30, RED]],
+    scale: [[17, BLUE], [20, LIME], [25, LIME], [26.5, YELLOW], [28, ORANGE], [30, RED]],
   },
   // < 30 сухо, 40–60 норма, 60+ сыро
   humidity: {
     label: 'Влажность', short: 'Влажн.', unit: '%', digits: 1,
-    scale: [[20, ORANGE], [30, YELLOW], [40, GREEN], [60, GREEN], [70, BLUE]],
+    scale: [[20, ORANGE], [30, YELLOW], [40, LIME], [60, LIME], [70, BLUE]],
   },
   // пороги индекса AQI (EPA): 12 / 35 / 55 / 150 мкг/м³
   pm25: {

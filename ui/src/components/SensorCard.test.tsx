@@ -34,7 +34,7 @@ describe('SensorCard', () => {
     )
     expect(value('950')).toContain('text-slate-500')
     expect(color('950')).toBe('')
-    expect(color('24,3')).toBe('rgb(52, 211, 153)')
+    expect(color('24,3')).toBe('rgb(155, 216, 106)')
     expect(screen.getByText('часть данных устарела')).toBeTruthy()
   })
 
@@ -65,7 +65,7 @@ describe('SensorCard', () => {
   it('красит значение по шкале метрики, устаревшее — без цвета', () => {
     render(<SensorCard sensor={makeSensor({ last_values: { co2: 600, temperature: 22.5 } })} />)
     expect(color('600')).toBe('rgb(52, 211, 153)')
-    expect(color('22,5')).toBe('rgb(52, 211, 153)')
+    expect(color('22,5')).toBe('rgb(155, 216, 106)')
   })
 
   it('стейл гасит значение и показывает бейдж', () => {

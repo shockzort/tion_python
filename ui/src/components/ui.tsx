@@ -46,7 +46,7 @@ export function Card({
 type BadgeTone = 'ok' | 'warn' | 'error' | 'muted'
 
 const badgeStyles: Record<BadgeTone, string> = {
-  ok: 'bg-emerald-500/10 text-emerald-300',
+  ok: 'bg-accent/12 text-accent',
   warn: 'bg-amber-500/10 text-amber-300',
   error: 'bg-rose-500/10 text-rose-300',
   muted: 'border border-slate-800 bg-slate-950/60 text-slate-300',

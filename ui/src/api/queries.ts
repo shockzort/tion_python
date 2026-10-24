@@ -530,6 +530,30 @@ export function useChangePassword() {
   })
 }
 
+// --- быстрые действия дашборда ---------------------------------------------------
+
+/** «Тихий режим»: всем бризерам на связи — скорость 1, без звука и подсветки. */
+export const QUIET_MODE: CommandBody = { power: true, fan_speed: 1, sound: false, light: false }
+
+export function useQuietMode() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (devices: Device[]) =>
+      Promise.allSettled(
+        devices
+          .filter((device) => device.connection === 'online')
+          .map((device) =>
+            api<CommandResult>(`/api/devices/${device.uuid}/command`, {
+              method: 'POST',
+              json: QUIET_MODE,
+              headers: { 'Idempotency-Key': `ui:${crypto.randomUUID()}` },
+            }),
+          ),
+      ),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: keys.devices }),
+  })
+}
+
 // --- мастер сопряжения -------------------------------------------------------
 
 export function useScanAir() {

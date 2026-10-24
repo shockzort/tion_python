@@ -830,6 +830,25 @@ function TriggersTab() {
                 })
               }
             />
+            <button
+              type="button"
+              aria-label="Копировать"
+              title="Копировать"
+              disabled={saveTrigger.isPending}
+              onClick={() =>
+                // копия выключена: включённый maintain гасит конфликтующие правила
+                saveTrigger.mutate(
+                  { body: { ...triggerToBody(trigger), name: `${trigger.name} (копия)`.slice(0, 100), enabled: false } },
+                  { onSuccess: (created) => setEditing(created) },
+                )
+              }
+              className="grid size-11 place-items-center rounded-xl border border-slate-800 bg-slate-950/60 text-slate-300 transition-colors hover:border-slate-700 hover:bg-slate-800 disabled:text-slate-500"
+            >
+              <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <rect x="9" y="9" width="11" height="11" rx="2" />
+                <path d="M5 15V6a2 2 0 0 1 2-2h9" />
+              </svg>
+            </button>
             <Button variant="ghost" onClick={() => setEditing(trigger)}>
               Изменить
             </Button>

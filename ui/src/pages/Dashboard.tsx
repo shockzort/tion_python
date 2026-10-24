@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 
 import {
   useDevices,
+  useQuietMode,
   useReleaseHold,
   useRooms,
   useRunScenario,
@@ -21,6 +22,7 @@ export default function Dashboard() {
   const runScenario = useRunScenario()
   const sendCommand = useSendCommand()
   const releaseHold = useReleaseHold()
+  const quietMode = useQuietMode()
 
   if (devices.isPending) {
     return <Spinner label="Загружаем устройства…" />
@@ -64,23 +66,24 @@ export default function Dashboard() {
         На связи {online} из {devices.data.length}
       </span>
 
-      {scenarios.data !== undefined && scenarios.data.length > 0 && (
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-          {scenarios.data.map((scenario) => {
-            const running = runScenario.isPending && runScenario.variables === scenario.id
-            return (
-              <Button
-                key={scenario.id}
-                variant="ghost"
-                disabled={runScenario.isPending}
-                onClick={() => runScenario.mutate(scenario.id)}
-              >
-                {running ? 'Запускаем…' : scenario.name}
-              </Button>
-            )
-          })}
-        </div>
-      )}
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+        {(scenarios.data ?? []).map((scenario) => {
+          const running = runScenario.isPending && runScenario.variables === scenario.id
+          return (
+            <Button
+              key={scenario.id}
+              variant="ghost"
+              disabled={runScenario.isPending}
+              onClick={() => runScenario.mutate(scenario.id)}
+            >
+              {running ? 'Запускаем…' : scenario.name}
+            </Button>
+          )
+        })}
+        <Button variant="ghost" disabled={quietMode.isPending} onClick={() => quietMode.mutate(devices.data)}>
+          {quietMode.isPending ? 'Затихаем…' : 'Тихий режим'}
+        </Button>
+      </div>
 
       {groups.map((group) => (
         <section key={group.key} aria-label={group.title} className="flex flex-col gap-2.5">

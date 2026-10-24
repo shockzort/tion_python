@@ -14,15 +14,15 @@ describe('metricColor', () => {
     expect(metricColor('co2', 850)).toBe('#97d057')
   })
 
-  it('температура: холод синий, комфорт зелёный, жара красная', () => {
+  it('температура: холод синий, комфорт салатовый, жара красная', () => {
     expect(metricColor('temperature', 16)).toBe('#60a5fa')
-    expect(metricColor('temperature', 23)).toBe('#34d399')
+    expect(metricColor('temperature', 23)).toBe('#9bd86a')
     expect(metricColor('temperature', 31)).toBe('#f87171')
   })
 
-  it('влажность: сухо оранжевый, норма зелёный, сыро синий', () => {
+  it('влажность: сухо оранжевый, норма салатовый, сыро синий', () => {
     expect(metricColor('humidity', 15)).toBe('#fb923c')
-    expect(metricColor('humidity', 50)).toBe('#34d399')
+    expect(metricColor('humidity', 50)).toBe('#9bd86a')
     expect(metricColor('humidity', 80)).toBe('#60a5fa')
   })
 
