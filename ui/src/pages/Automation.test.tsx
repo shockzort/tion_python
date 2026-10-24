@@ -43,7 +43,15 @@ describe('Automation · триггеры', () => {
       }
       if (url.startsWith('/api/triggers')) return json([trigger])
       if (url.startsWith('/api/sensors')) {
-        return json([{ id: 3, name: 'CO₂ спальня', kind: 'magicair', capabilities: ['co2'], room_id: null, last_values: null, stale: false }])
+        return json([{ id: 3, name: 'CO₂', kind: 'magicair', capabilities: ['co2'], room_id: 2, last_values: null, stale: false }])
+      }
+      if (url.startsWith('/api/rooms')) return json([{ id: 1, name: 'Гостиная' }, { id: 2, name: 'Спальня' }])
+      if (url.startsWith('/api/groups')) return json([{ id: 1, name: 'Все бризеры', device_uuids: ['a', 'b'] }])
+      if (url.startsWith('/api/devices')) {
+        return json([
+          { uuid: 'a', name: 'Бризер 4S', room_id: 2, connection: 'online', state: null },
+          { uuid: 'b', name: 'Бризер 4S', room_id: 1, connection: 'online', state: null },
+        ])
       }
       return json([])
     })
@@ -63,5 +71,36 @@ describe('Automation · триггеры', () => {
       threshold: 1100,
       targets: [{ device_uuid: 'a' }],
     })
+  })
+
+  it('в редакторе триггера цели и датчики подписаны комнатой', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input)
+      if (url.startsWith('/api/triggers')) return json([trigger])
+      if (url.startsWith('/api/sensors')) {
+        return json([{ id: 3, name: 'CO₂', kind: 'magicair', capabilities: ['co2'], room_id: 2, last_values: null, stale: false }])
+      }
+      if (url.startsWith('/api/rooms')) return json([{ id: 1, name: 'Гостиная' }, { id: 2, name: 'Спальня' }])
+      if (url.startsWith('/api/groups')) return json([{ id: 1, name: 'Все бризеры', device_uuids: ['a', 'b'] }])
+      if (url.startsWith('/api/devices')) {
+        return json([
+          { uuid: 'a', name: 'Бризер 4S', room_id: 2, connection: 'online', state: null },
+          { uuid: 'b', name: 'Бризер 4S', room_id: 1, connection: 'online', state: null },
+        ])
+      }
+      return json([])
+    })
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <Automation />
+      </QueryClientProvider>,
+    )
+    fireEvent.click(screen.getByText('Триггеры'))
+    fireEvent.click(await screen.findByRole('button', { name: 'Изменить' }))
+
+    expect(await screen.findByRole('button', { name: 'Бризер 4S · Спальня' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Бризер 4S · Гостиная' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Группа · Все бризеры (Спальня, Гостиная)' })).toBeTruthy()
+    expect(screen.getByRole('option', { name: 'CO₂ · Спальня' })).toBeTruthy()
   })
 })

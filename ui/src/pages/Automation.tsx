@@ -7,6 +7,7 @@ import {
   useDeleteTrigger,
   useDevices,
   useGroups,
+  useRooms,
   useRunScenario,
   useSaveScenario,
   useSaveSchedule,
@@ -21,6 +22,8 @@ import {
 } from '../api/queries'
 import type {
   CommandBody,
+  Device,
+  Group,
   Scenario,
   ScenarioAction,
   Schedule,
@@ -34,6 +37,29 @@ import type {
 import { Badge, Button, Card, Spinner, Toggle } from '../components/ui'
 import { cronFromPreset, DAY_LABELS, describeCron, presetFromCron } from '../lib/cron'
 import { AIR_METRICS, metricOption } from '../lib/metrics'
+
+/** Подписи целей с комнатой: одинаковые «Бризер 4S» без неё не различить. */
+function useTargetLabels() {
+  const rooms = useRooms()
+  const devices = useDevices()
+  const roomNames = new Map((rooms.data ?? []).map((room) => [room.id, room.name]))
+  const roomOf = new Map(
+    (devices.data ?? []).map((device) => [
+      device.uuid,
+      device.room_id === null ? undefined : roomNames.get(device.room_id),
+    ]),
+  )
+  const withRoom = (name: string, room: string | undefined) => (room ? `${name} · ${room}` : name)
+  return {
+    device: (device: Device) => withRoom(device.name, roomOf.get(device.uuid)),
+    group: (group: Group) => {
+      const groupRooms = [...new Set(group.device_uuids.map((uuid) => roomOf.get(uuid)).filter(Boolean))]
+      return `Группа · ${group.name}${groupRooms.length > 0 ? ` (${groupRooms.join(', ')})` : ''}`
+    },
+    sensor: (sensor: Sensor) =>
+      withRoom(sensor.name, sensor.room_id === null ? undefined : roomNames.get(sensor.room_id)),
+  }
+}
 
 
 export default function Automation() {
@@ -256,6 +282,7 @@ function ScenarioEditor({
   const devices = useDevices()
   const groups = useGroups()
   const triggers = useTriggers()
+  const labels = useTargetLabels()
   const saveScenario = useSaveScenario()
   const [name, setName] = useState(scenario?.name ?? '')
   const [actions, setActions] = useState<ActionDraft[]>(
@@ -325,12 +352,12 @@ function ScenarioEditor({
               <option value="">Цель: устройство, группа или триггер…</option>
               {groups.data?.map((group) => (
                 <option key={`g${group.id}`} value={`group:${group.id}`}>
-                  Группа · {group.name}
+                  {labels.group(group)}
                 </option>
               ))}
               {devices.data?.map((device) => (
                 <option key={device.uuid} value={`device:${device.uuid}`}>
-                  {device.name}
+                  {labels.device(device)}
                 </option>
               ))}
               {triggers.data?.map((trigger) => (
@@ -907,6 +934,7 @@ function TriggerEditor({
   const saveTrigger = useSaveTrigger()
   const devices = useDevices()
   const groups = useGroups()
+  const labels = useTargetLabels()
   const maintainInitial = trigger !== null && trigger.kind === 'maintain'
   const [kind, setKind] = useState<TriggerKind>(trigger?.kind ?? 'threshold')
   const [name, setName] = useState(trigger?.name ?? '')
@@ -1097,7 +1125,7 @@ function TriggerEditor({
           >
             {sensors.map((sensor) => (
               <option key={sensor.id} value={sensor.id}>
-                {sensor.name}
+                {labels.sensor(sensor)}
               </option>
             ))}
           </select>
@@ -1252,7 +1280,7 @@ function TriggerEditor({
                       : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
                   }`}
                 >
-                  Группа · {group.name}
+                  {labels.group(group)}
                 </button>
               )
             })}
@@ -1270,7 +1298,7 @@ function TriggerEditor({
                       : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
                   }`}
                 >
-                  {device.name}
+                  {labels.device(device)}
                 </button>
               )
             })}
