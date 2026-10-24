@@ -6,7 +6,7 @@ import asyncio
 import contextlib
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import replace
 
 import structlog
 from bleak import BleakScanner
@@ -15,23 +15,20 @@ from bleak.backends.scanner import AdvertisementData
 from bleak.exc import BleakError
 
 from easy_breezy.ble.coordinator import ScanCoordinator
+from easy_breezy.core.discovery import DiscoveredSensor
 from easy_breezy.core.events import TOPIC_DEVICE_LIST_CHANGED, EventBus, Subscription
 from easy_breezy.core.sensors import KIND_QINGPING_BLE, SensorIngest, metric_is_stale
-from easy_breezy.integrations.qingping.parser import SERVICE_UUID, parse_advertisement
+from easy_breezy.integrations.qingping.parser import (
+    SERVICE_UUID,
+    SOURCE_PREFIX,
+    parse_advertisement,
+)
 from easy_breezy.storage import Database
 from easy_breezy.storage.repos import SensorRepo
 
 log = structlog.get_logger(__name__)
 PUBLISH_INTERVAL = 30
 SCAN_SESSION_SECONDS = 60
-
-
-@dataclass(frozen=True)
-class DiscoveredQingping:
-    source_key: str
-    rssi: int
-    metrics: dict[str, float]
-    registered: bool
 
 
 class QingpingListener:
@@ -58,7 +55,7 @@ class QingpingListener:
         self._allowed: set[str] = set()
         self._changed = asyncio.Event()
         self._discovery_count = 0
-        self._discovered: dict[str, tuple[float, DiscoveredQingping]] = {}
+        self._discovered: dict[str, tuple[float, DiscoveredSensor]] = {}
         self._pending: dict[tuple[str, str], tuple[float, int]] = {}
         self._published: dict[tuple[str, str], float] = {}
         self.last_error: str | None = None
@@ -110,7 +107,7 @@ class QingpingListener:
                     log.exception("qingping_registry_failed")
                     await asyncio.sleep(5)
 
-    async def discover(self, duration: float = 15) -> list[DiscoveredQingping]:
+    async def discover(self, duration: float = 15) -> list[DiscoveredSensor]:
         """Временно включает общий слушатель; никаких регистраций или соединений."""
         if not self._enabled:
             raise ValueError("поиск Qingping отключён в режиме эмуляторов")
@@ -120,18 +117,13 @@ class QingpingListener:
         try:
             await asyncio.sleep(duration)
             found = [
-                DiscoveredQingping(
-                    item.source_key,
-                    item.rssi,
-                    item.metrics,
-                    item.source_key in self._allowed,
-                )
+                replace(item, registered=item.source_key in self._allowed)
                 for seen, item in self._discovered.values()
                 if seen >= started
             ]
             if not found and self.last_error is not None:
                 raise ValueError(self.last_error)
-            return sorted(found, key=lambda item: item.rssi, reverse=True)
+            return sorted(found, key=lambda item: item.signal_dbm or -999, reverse=True)
         finally:
             self._discovery_count -= 1
             self._changed.set()
@@ -149,11 +141,14 @@ class QingpingListener:
                 del self._discovered[oldest]
             self._discovered[reading.source_key] = (
                 now,
-                DiscoveredQingping(
-                    reading.source_key,
-                    rssi,
-                    reading.metrics,
-                    reading.source_key in self._allowed,
+                DiscoveredSensor(
+                    kind=KIND_QINGPING_BLE,
+                    source_key=reading.source_key,
+                    address=reading.source_key.removeprefix(SOURCE_PREFIX),
+                    model="Qingping Air Monitor Lite",
+                    signal_dbm=rssi,
+                    metrics=reading.metrics,
+                    registered=reading.source_key in self._allowed,
                 ),
             )
         if reading.source_key in self._allowed:

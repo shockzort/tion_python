@@ -33,12 +33,8 @@ import type {
 } from '../api/types'
 import { Badge, Button, Card, Spinner, Toggle } from '../components/ui'
 import { cronFromPreset, DAY_LABELS, describeCron, presetFromCron } from '../lib/cron'
+import { AIR_METRICS, metricOption } from '../lib/metrics'
 
-const METRIC_LABELS: Record<SensorMetric, string> = {
-  co2: 'CO₂, ppm',
-  temperature: 'температура, °C',
-  humidity: 'влажность, %',
-}
 
 export default function Automation() {
   const [tab, setTab] = useState<'scenarios' | 'schedules' | 'triggers'>(
@@ -804,14 +800,16 @@ function TriggersTab() {
               {trigger.kind === 'maintain' ? (
                 <>
                   {sensorNames.get(trigger.sensor_id) ?? 'датчик'} · CO₂ ≈{' '}
-                  {trigger.threshold} ppm · скорость{' '}
+                  {trigger.threshold} ppm (быстрее при &gt;{' '}
+                  {trigger.threshold + trigger.hysteresis}, тише при &lt;{' '}
+                  {trigger.threshold - trigger.hysteresis}) · скорость{' '}
                   {trigger.speed_min === 0 ? 'выкл' : trigger.speed_min}–
                   {trigger.speed_max}
                 </>
               ) : (
                 <>
                   {sensorNames.get(trigger.sensor_id) ?? 'датчик'} ·{' '}
-                  {METRIC_LABELS[trigger.metric]} {trigger.op} {trigger.threshold}
+                  {metricOption(trigger.metric)} {trigger.op} {trigger.threshold}
                   {trigger.enter_scenario_id !== null &&
                     ` → ${scenarioNames.get(trigger.enter_scenario_id) ?? 'сценарий'}`}
                 </>
@@ -1094,9 +1092,13 @@ function TriggerEditor({
                 onChange={(event) => setMetric(event.target.value as SensorMetric)}
                 className={inputClass}
               >
-                {Object.entries(METRIC_LABELS).map(([key, label]) => (
+                {AIR_METRICS.filter(
+                  (key) =>
+                    key === metric ||
+                    (sensors.find((sensor) => String(sensor.id) === sensorId)?.capabilities ?? AIR_METRICS).includes(key),
+                ).map((key) => (
                   <option key={key} value={key}>
-                    {label}
+                    {metricOption(key)}
                   </option>
                 ))}
               </select>
@@ -1162,6 +1164,12 @@ function TriggerEditor({
                 className={inputClass}
                 aria-label="зона покоя"
               />
+              {Number.isFinite(Number(threshold)) && Number(deadband) > 0 && (
+                <span className="text-slate-500">
+                  быстрее при CO₂ &gt; {Number(threshold) + Number(deadband)}, тише при &lt;{' '}
+                  {Number(threshold) - Number(deadband)}
+                </span>
+              )}
             </label>
             <label className="flex flex-col gap-1 text-xs text-slate-400">
               Скорость от

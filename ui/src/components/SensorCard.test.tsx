@@ -13,56 +13,66 @@ function makeSensor(overrides: Partial<Sensor> = {}): Sensor {
     room_id: null,
     last_values: { co2: 950, temperature: 24.3, humidity: 41 },
     last_seen_at: 1_000,
+    capabilities: ['co2', 'temperature', 'humidity'],
     stale: false,
     ...overrides,
   }
 }
 
+const value = (text: string) => screen.getByText(text).className
+
 describe('SensorCard', () => {
   it('новая температура не делает старый CO₂ свежим', () => {
-    render(<SensorCard sensor={makeSensor({ kind: 'qingping_ble', stale: true,
-      metric_stale: { co2: true, temperature: false, humidity: false } })} />)
-    expect(screen.getByText('950').parentElement?.className).toContain('text-slate-500')
-    expect(screen.getByText('24.3 °C').className).toContain('text-slate-300')
+    render(
+      <SensorCard
+        sensor={makeSensor({
+          stale: true,
+          metric_stale: { co2: true, temperature: false, humidity: false },
+        })}
+      />,
+    )
+    expect(value('950')).toContain('text-slate-500')
+    expect(value('24,3')).toContain('text-slate-200')
     expect(screen.getByText('часть данных устарела')).toBeTruthy()
-    expect(screen.getByText('Qingping BLE')).toBeTruthy()
   })
-  it('показывает метрики с округлением', () => {
-    render(<SensorCard sensor={makeSensor()} roomName="Гостиная" />)
+
+  it('показывает метрики с точностью справочника и комнату', () => {
+    render(<SensorCard sensor={makeSensor({ last_values: { co2: 950, temperature: 24.84, humidity: 57.46 } })} roomName="Гостиная" />)
     expect(screen.getByText('Гостиная CO₂')).toBeTruthy()
     expect(screen.getByText('950')).toBeTruthy()
-    expect(screen.getByText('24.3 °C')).toBeTruthy()
-    expect(screen.getByText('41 %')).toBeTruthy()
+    expect(screen.getByText('24,8')).toBeTruthy()
+    expect(screen.getByText('57,5')).toBeTruthy()
     expect(screen.getByText('Гостиная')).toBeTruthy()
   })
 
+  it('показывает пыль и заряд, если датчик их передаёт', () => {
+    render(
+      <SensorCard
+        sensor={makeSensor({
+          kind: 'qingping_mqtt',
+          capabilities: ['co2', 'temperature', 'humidity', 'pm25', 'pm10', 'battery'],
+          last_values: { co2: 817, pm25: 48, pm10: 8, battery: 64 },
+        })}
+      />,
+    )
+    expect(screen.getByText('PM2.5')).toBeTruthy()
+    expect(value('48')).toContain('text-rose-400')
+    expect(screen.getByText('64 %')).toBeTruthy()
+  })
+
   it('подсвечивает CO₂ по бытовой шкале', () => {
-    const { rerender } = render(
-      <SensorCard sensor={makeSensor({ last_values: { co2: 600 } })} />,
-    )
-    expect(screen.getByText('600').parentElement?.className).toContain(
-      'text-emerald-400',
-    )
+    const { rerender } = render(<SensorCard sensor={makeSensor({ last_values: { co2: 600 } })} />)
+    expect(value('600')).toContain('text-emerald-400')
     rerender(<SensorCard sensor={makeSensor({ last_values: { co2: 900 } })} />)
-    expect(screen.getByText('900').parentElement?.className).toContain(
-      'text-amber-400',
-    )
+    expect(value('900')).toContain('text-amber-400')
     rerender(<SensorCard sensor={makeSensor({ last_values: { co2: 1400 } })} />)
-    expect(screen.getByText('1400').parentElement?.className).toContain(
-      'text-rose-400',
-    )
+    expect(value('1 400')).toContain('text-rose-400')
   })
 
   it('стейл гасит значение и показывает бейдж', () => {
-    render(
-      <SensorCard
-        sensor={makeSensor({ stale: true, last_values: { co2: 700 } })}
-      />,
-    )
+    render(<SensorCard sensor={makeSensor({ stale: true, last_values: { co2: 700 } })} />)
     expect(screen.getByText('нет данных')).toBeTruthy()
-    expect(screen.getByText('700').parentElement?.className).toContain(
-      'text-slate-500',
-    )
+    expect(value('700')).toContain('text-slate-500')
   })
 
   it('без данных пишет «ждём данные»', () => {

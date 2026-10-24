@@ -7,8 +7,9 @@ BLE-управление с Linux-сервера (Raspberry Pi), голос че
 
 > Лицензия: [PolyForm Noncommercial 1.0.0](LICENSE) — свободное
 > некоммерческое использование. Статус: **MVP работает** (фазы 0–7 и 9 в master) —
-> BLE-управление, PWA, сценарии/расписания/триггеры, датчики CO₂
-> (MagicAir cloud, MQTT), текстовые интенты, web push, бэкапы, APK.
+> BLE-управление, PWA, сценарии/расписания/триггеры, датчики воздуха
+> (MagicAir cloud, Qingping по Wi-Fi/BLE, MQTT), текстовые интенты, web push,
+> бэкапы, APK.
 > Текущий план — `docs/status.md`, история фаз — `docs/history.md`.
 
 ## Архитектура
@@ -49,6 +50,58 @@ make apk      # Android APK → mobile/easy-breezy-<версия>.apk
 Развёртывание на целевой сервер (Raspberry Pi): `make provision` (разово),
 затем `make release VERSION=x.y.z && make deploy VERSION=x.y.z` —
 см. `deploy/ansible/README.md`.
+
+## Датчики воздуха
+
+Датчики добавляются в интерфейсе: **Устройства → Датчики → Добавить датчик** →
+тип → поиск (или адрес вручную) → комната и имя. Мастер показывает, что
+датчик умеет измерять (CO₂, температура, влажность, PM2.5/PM10, заряд);
+по этим показателям доступны карточки, графики и правила автоматики.
+
+| Тип | Как подключается | Что нужно |
+|---|---|---|
+| Tion MagicAir | облако Tion, появляются сами | `EB_MAGICAIR_EMAIL/PASSWORD` в `.env` |
+| **Qingping Air Monitor Lite (CGDN1) · Wi-Fi** — рекомендуемый | датчик шлёт данные на брокер сервиса раз в минуту | разовая настройка на портале Qingping — ниже |
+| Qingping Air Monitor Lite · Bluetooth | пассивный приём BLE-рекламы | датчик в радиусе Bluetooth сервера |
+| MQTT-датчик | JSON или числа в свой топик | брокер сервиса (`EB_MQTT_URL`) |
+
+### Qingping CGDN1 по Wi-Fi (MQTT)
+
+Брокер Mosquitto ставится вместе с сервисом (`make provision`, профиль
+`mqtt`) и сам заводит пароли — см. `deploy/ansible/README.md`.
+
+1. Привяжите датчик к приложению **Qingping+** (или Qingping IoT), он должен
+   быть в домашнем Wi-Fi. Прошивка — не ниже 4.1.8 (проверено на 4.8.5).
+2. На компьютере откройте **https://developer.qingping.co** → войдите той же
+   учёткой → **Private Access Config → Configurations → Add**:
+   - Device Model — *Qingping Air Monitor Lite*, Private Type — *Self-built MQTT*;
+   - в «Self-built MQTT Information» (`<MAC>` — MAC Wi-Fi датчика
+     ЗАГЛАВНЫМИ без двоеточий, виден в приложении):
+
+     ```text
+     host=<IP сервера в LAN>
+     port=1883
+     username=qingping
+     password=<EB_MQTT_DEVICE_PASSWORD из /opt/easy-breezy/.env>
+     clientId=qingping-<MAC>
+     topicUp=qingping/<MAC>/up
+     topicDown=qingping/<MAC>/down
+     ```
+
+   - Interval of Uploading и Interval of Recording — **1 minute** (данные
+     старше 5 минут сервис считает устаревшими).
+3. **Private Access Config → Devices → Add** — выберите датчик и назначьте
+   ему конфигурацию.
+4. Перезагрузите датчик (долгое нажатие кнопки → выключить → включить).
+   На датчике *Settings → Private Cloud* должен показать подключение;
+   из Qingping+ он, скорее всего, пропадёт — это ожидаемо.
+5. В Easy Breezy: **Добавить датчик → Qingping · Wi-Fi** — датчик найдётся
+   сам в течение минуты; выберите комнату и имя.
+
+Дальше сервис сам держит датчик в режиме «показания раз в минуту», отвечает
+на его служебные запросы (синхронизация часов) и подтверждает историю.
+Изменить настройки на портале можно только со сбросом датчика к заводским.
+Подробности и диагностика — `docs/qingping.md`.
 
 ## Документы
 

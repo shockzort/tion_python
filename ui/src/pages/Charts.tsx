@@ -35,6 +35,7 @@ import {
 import type { Device, Sensor } from '../api/types'
 import { Button, Card, Spinner } from '../components/ui'
 import { withGaps } from '../lib/chartGaps'
+import { AIR_METRICS, METRIC_ORDER, metricOption } from '../lib/metrics'
 
 const DEVICE_METRICS = [
   { key: 'out_temp', label: 'После бризера, °C' },
@@ -43,11 +44,14 @@ const DEVICE_METRICS = [
   { key: 'heater_temp', label: 'Цель нагрева, °C' },
 ] as const
 
-const SENSOR_METRICS = [
-  { key: 'co2', label: 'CO₂, ppm' },
-  { key: 'temperature', label: 'Температура, °C' },
-  { key: 'humidity', label: 'Влажность, %' },
-] as const
+/** Метрики датчика — по его capabilities (Qingping: ещё PM2.5/PM10/заряд). */
+function sensorMetrics(sensor: Sensor | undefined): { key: string; label: string }[] {
+  const capabilities = sensor?.capabilities?.length ? sensor.capabilities : AIR_METRICS.slice(0, 3)
+  return METRIC_ORDER.filter((metric) => capabilities.includes(metric)).map((metric) => ({
+    key: metric,
+    label: metricOption(metric),
+  }))
+}
 
 const PERIODS = [
   { key: '1h', label: '1ч', seconds: 3_600, agg: 'raw' },
@@ -299,7 +303,10 @@ function ChartPanelCard({
     'device' | 'sensor',
     string,
   ]
-  const metricOptions = sourceType === 'sensor' ? SENSOR_METRICS : DEVICE_METRICS
+  const metricOptions: readonly { key: string; label: string }[] =
+    sourceType === 'sensor'
+      ? sensorMetrics(sensors.find((sensor) => String(sensor.id) === sourceId))
+      : DEVICE_METRICS
   const activeMetric = metricOptions.some((entry) => entry.key === panel.metric)
     ? panel.metric
     : metricOptions[0].key

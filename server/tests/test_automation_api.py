@@ -33,7 +33,7 @@ def test_scenario_trigger_actions(client_app: ClientAndApp) -> None:
     devices = wait_devices_online(client)
 
     sensor = client.post(
-        "/api/sensors", json={"name": "CO₂", "source_key": "home/air"}
+        "/api/sensors", json={"name": "CO₂", "kind": "mqtt", "address": "home/air"}
     ).json()
     trigger = client.post(
         "/api/triggers",

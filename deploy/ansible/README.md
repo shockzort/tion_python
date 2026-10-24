@@ -36,9 +36,32 @@ make deploy VERSION=x.y.z    # build-ui → buildx arm64 → save|ssh|load →
 ├── .env                 # конфигурация приложения (EB_*)
 ├── frpc.toml            # туннель до VPS (профиль tunnel)
 ├── nginx/               # конфиг LAN-входа (профиль lan)
+├── mosquitto/           # брокер датчиков (профиль mqtt): config/ + data/
 ├── tls/                 # копия боевого серта, 0700 (eb-cert-sync.sh)
 └── data/                # БД, бэкапы, VAPID-ключи (bind-mount в контейнер)
 ```
+
+## Брокер датчиков (Mosquitto)
+
+Профиль `mqtt`: брокер слушает `1883` в LAN — туда шлют показания Wi-Fi
+датчики (Qingping по «Self-built MQTT», [docs/qingping.md](../../docs/qingping.md)).
+Наружу через frp не пробрасывается, анонимный доступ запрещён.
+
+Всё делает `make provision`: доставляет конфиг и ACL, включает профиль
+`mqtt` в `deploy.env` и запускает `deploy/mosquitto/eb-mqtt-setup.sh`.
+Скрипт дописывает в `.env` недостающие пароли (существующие не трогает —
+на них уже настроены датчики) и пересобирает хэши `mosquitto/config/passwd`:
+
+| Переменная `.env` | Кто | Права |
+|---|---|---|
+| `EB_MQTT_URL=mqtt://easy-breezy:<пароль>@127.0.0.1:1883` | сервис | читает всё, пишет `qingping/+/down` |
+| `EB_MQTT_DEVICE_PASSWORD=<пароль>` | датчики, логин `qingping` | пишет `qingping/+/up`, читает `qingping/+/down` |
+
+Пароль датчиков для портала Qingping: `grep EB_MQTT_DEVICE_PASSWORD
+/opt/easy-breezy/.env`. Новый `EB_MQTT_URL` сервис подхватит после
+`make deploy` или `systemctl restart easy-breezy`. Сменить пароль датчиков —
+поправить `.env` и повторить `make provision` (датчики придётся
+перенастроить на портале и сбросить).
 
 ## LAN без интернета
 

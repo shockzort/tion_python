@@ -34,10 +34,11 @@ def test_clean_metrics_filters_garbage() -> None:
         "co2": 850,
         "temperature": 23.5,
         "humidity": float("nan"),
-        "pm25": 12.0,  # неизвестная метрика
+        "pm25": 12.0,
+        "voc": 3.0,  # неизвестная метрика
         "co2_extra": True,
     }
-    assert clean_metrics(raw) == {"co2": 850.0, "temperature": 23.5}
+    assert clean_metrics(raw) == {"co2": 850.0, "temperature": 23.5, "pm25": 12.0}
     assert clean_metrics({"co2": "800"}) == {}  # строки не приводим
     assert clean_metrics({"co2": True}) == {}  # bool — не число
     assert clean_metrics({"humidity": math.inf}) == {}
@@ -240,7 +241,8 @@ def test_parse_payload_table() -> None:
     # мусор
     assert parse_payload(None, b"not json") == {}
     assert parse_payload("co2", b"abc") == {}
-    assert parse_payload("pm25", b"10") == {}  # неизвестная метрика
+    assert parse_payload("pm25", b"10") == {"pm25": 10.0}
+    assert parse_payload("voc", b"10") == {}  # неизвестная метрика
     assert parse_payload(None, b"true") == {}  # bool — не измерение
 
 

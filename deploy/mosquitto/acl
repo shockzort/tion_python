@@ -1,0 +1,9 @@
+# Датчики Qingping: публикуют показания, читают команды (интервал отправки).
+user qingping
+topic write qingping/+/up
+topic read qingping/+/down
+
+# Сервис Easy Breezy: читает все датчики, управляет интервалами Qingping.
+user easy-breezy
+topic read #
+topic write qingping/+/down

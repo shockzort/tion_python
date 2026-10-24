@@ -28,6 +28,19 @@ services:
       driver: json-file
       options: { max-size: "10m", max-file: "5" }
 
+  mosquitto:                    # брокер датчиков (профиль mqtt, deploy.env)
+    image: eclipse-mosquitto:2.0.20
+    profiles: [mqtt]
+    restart: unless-stopped
+    network_mode: host          # 1883 в LAN (датчики Wi-Fi) + 127.0.0.1 для сервиса
+    volumes:
+      # каталог, не файл: ansible подменяет конфиг атомарно (см. nginx)
+      - ./mosquitto/config:/mosquitto/config:ro
+      - ./mosquitto/data:/mosquitto/data
+    logging:
+      driver: json-file
+      options: { max-size: "5m", max-file: "2" }
+
   nginx:                        # LAN-вход по HTTPS (профиль lan, deploy.env)
     image: nginx:1.29-alpine
     profiles: [lan]

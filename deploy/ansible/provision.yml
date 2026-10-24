@@ -8,7 +8,7 @@
   become: true
   vars:
     eb_root: /opt/easy-breezy
-    eb_compose_profiles: tunnel,lan # tunnel — frpc наружу, lan — nginx в LAN
+    eb_compose_profiles: tunnel,lan,mqtt # tunnel — frpc наружу, lan — nginx в LAN, mqtt — брокер датчиков
   tasks:
     - name: Пакеты (curl — watchdog, bluez — BLE-стек, sqlite3 — бэкапы)
       ansible.builtin.apt:
@@ -35,6 +35,15 @@
         - "{{ eb_root }}"
         - "{{ eb_root }}/data"
         - "{{ eb_root }}/nginx"
+        - "{{ eb_root }}/mosquitto/config"
+
+    - name: Каталог данных Mosquitto (пишет uid 1883 из образа)
+      ansible.builtin.file:
+        path: "{{ eb_root }}/mosquitto/data"
+        state: directory
+        owner: "1883"
+        group: "1883"
+        mode: "0755"
 
     - name: Compose-файл
       ansible.builtin.copy:
@@ -48,6 +57,14 @@
         dest: "{{ eb_root }}/.env"
         mode: "0600"
         force: false
+
+    - name: Профиль mqtt в существующем deploy.env (брокер датчиков)
+      ansible.builtin.lineinfile:
+        path: "{{ eb_root }}/deploy.env"
+        regexp: '^COMPOSE_PROFILES=(?!.*\bmqtt\b)(.*)$'
+        line: 'COMPOSE_PROFILES=\1,mqtt'
+        backrefs: true
+      failed_when: false
 
     - name: deploy.env по умолчанию (версию пишет деплой-плейбук)
       ansible.builtin.copy:
@@ -91,6 +108,20 @@
         src: ../nginx/easy-breezy-lan.conf
         dest: "{{ eb_root }}/nginx/easy-breezy-lan.conf"
         mode: "0644"
+
+    - name: Конфиг и права Mosquitto (passwd заводится на хосте, README)
+      ansible.builtin.copy:
+        src: "../mosquitto/{{ item }}"
+        dest: "{{ eb_root }}/mosquitto/config/{{ item }}"
+        mode: "0644"
+      loop: [mosquitto.conf, acl]
+      notify: Перезапустить брокер
+
+    - name: Учётки брокера (пароли в .env — генерируются, если их нет)
+      ansible.builtin.script: ../mosquitto/eb-mqtt-setup.sh
+      register: mqtt_setup
+      changed_when: "'changed' in mqtt_setup.stdout_lines"
+      notify: Перезапустить брокер
 
     - name: Скрипт доставки сертификата
       ansible.builtin.copy:
@@ -143,6 +174,14 @@
           затем из корня репозитория: make deploy VERSION=x.y.z
 
   handlers:
+    - name: Перезапустить брокер
+      # профиль mqtt включён в deploy.env; сервис подхватит EB_MQTT_URL
+      # при следующем деплое/рестарте (systemctl restart easy-breezy)
+      ansible.builtin.shell: >-
+        cd {{ eb_root }} && docker compose --env-file deploy.env
+        up -d --force-recreate mosquitto
+      changed_when: true
+
     - name: Перезапустить bluetooth
       ansible.builtin.systemd:
         name: bluetooth.service

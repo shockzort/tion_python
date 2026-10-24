@@ -25,7 +25,7 @@ from easy_breezy.ble.supervisor import ConnectionState
 from easy_breezy.container import AppContainer
 from easy_breezy.core.bus import CommandError
 from easy_breezy.core.model import state_to_dict
-from easy_breezy.core.sensors import METRICS, metric_is_stale
+from easy_breezy.core.sensors import CLIMATE_METRICS, metric_is_stale
 from easy_breezy.integrations.yandex import mapping
 from easy_breezy.storage.models import CommandSource, CommandStatus, Device
 from easy_breezy.storage.repos import DeviceRepo, RoomRepo, SensorRepo
@@ -121,7 +121,7 @@ async def list_devices(
             f"{SENSOR_ID_PREFIX}{sensor.id}",
             sensor.name,
             rooms.get(sensor.room_id) if sensor.room_id else None,
-            sorted(sensor.last_values) if sensor.last_values else list(METRICS),
+            sorted(sensor.last_values) if sensor.last_values else list(CLIMATE_METRICS),
         )
         for sensor in sensors
     ]

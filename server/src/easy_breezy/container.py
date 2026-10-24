@@ -24,6 +24,7 @@ from easy_breezy.ble.protocol.s4 import GATT_NOTIFY, GATT_WRITE
 from easy_breezy.ble.transport import BleakTransport, BleTransport
 from easy_breezy.config import Settings
 from easy_breezy.core.bus import CommandBus
+from easy_breezy.core.discovery import SensorDiscovery
 from easy_breezy.core.events import EventBus
 from easy_breezy.core.holds import HoldManager
 from easy_breezy.core.pairing import (
@@ -34,14 +35,20 @@ from easy_breezy.core.pairing import (
 from easy_breezy.core.push import PushService
 from easy_breezy.core.registry import DeviceRegistry
 from easy_breezy.core.sdnotify import READY, sd_notify
-from easy_breezy.core.sensors import SensorIngest
+from easy_breezy.core.sensors import (
+    KIND_QINGPING_BLE,
+    KIND_QINGPING_MQTT,
+    SensorIngest,
+)
 from easy_breezy.core.state import StateCache
 from easy_breezy.core.telemetry import TelemetryService
 from easy_breezy.core.watchdog import BleWatchdog
 from easy_breezy.integrations.intents.service import IntentService
 from easy_breezy.integrations.magicair.client import MagicAirPoller
 from easy_breezy.integrations.mqtt.client import MqttIngest
+from easy_breezy.integrations.providers import SensorProvider, build_providers
 from easy_breezy.integrations.qingping.client import QingpingListener
+from easy_breezy.integrations.qingping.mqtt import QingpingMqttListener
 from easy_breezy.integrations.yandex.callbacks import YandexNotifier
 from easy_breezy.storage import Database
 from easy_breezy.storage.backup import BackupService
@@ -70,12 +77,23 @@ class AppContainer:
     magicair: MagicAirPoller
     mqtt: MqttIngest
     qingping: QingpingListener
+    qingping_mqtt: QingpingMqttListener
     intents: IntentService
     backup: BackupService
     watchdog: BleWatchdog
     push: PushService
+    sensor_providers: list[SensorProvider] = field(default_factory=list)
+    """Источники показаний для мастера добавления датчика."""
     ws_connections: set[Any] = field(default_factory=set)
     """Живые WebSocket-клиенты (для /api/system/stats)."""
+
+    def discovery(self, kind: str) -> SensorDiscovery | None:
+        """Поиск провайдера ``kind``; None — провайдер искать не умеет."""
+        discoverers: dict[str, SensorDiscovery] = {
+            KIND_QINGPING_BLE: self.qingping,
+            KIND_QINGPING_MQTT: self.qingping_mqtt,
+        }
+        return discoverers.get(kind)
 
     async def startup(self) -> None:
         """Порядок старта: миграции → журнал → dev-фейки → супервизоры."""
@@ -92,6 +110,7 @@ class AppContainer:
         await self.magicair.start()
         await self.mqtt.start()
         await self.qingping.start()
+        await self.qingping_mqtt.start()
         await self.push.start()
         await self.backup.start()
         await self.watchdog.start()
@@ -104,6 +123,7 @@ class AppContainer:
         await self.watchdog.stop()
         await self.backup.stop()
         await self.push.stop()
+        await self.qingping_mqtt.stop()
         await self.qingping.stop()
         await self.mqtt.stop()
         await self.magicair.stop()
@@ -169,6 +189,7 @@ def build_container(settings: Settings) -> AppContainer:
     qingping = QingpingListener(
         db, sensors, events, scan_gate, enabled=settings.fake_devices == 0
     )
+    qingping_mqtt = QingpingMqttListener(db, sensors, events, url=settings.mqtt_url)
     intents = IntentService(
         db,
         registry,
@@ -206,6 +227,11 @@ def build_container(settings: Settings) -> AppContainer:
         magicair=magicair,
         mqtt=mqtt,
         qingping=qingping,
+        qingping_mqtt=qingping_mqtt,
+        sensor_providers=build_providers(
+            mqtt_enabled=bool(settings.mqtt_url),
+            ble_enabled=settings.fake_devices == 0,
+        ),
         intents=intents,
         backup=backup,
         watchdog=watchdog,

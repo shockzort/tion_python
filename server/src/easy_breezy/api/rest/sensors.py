@@ -1,6 +1,7 @@
 """Датчики и триггеры: реестр и CRUD (FR-22/24/26).
 
-MQTT-датчики заводятся вручную (source_key = базовый топик брокера);
+Датчики добавляются единым путём для любого провайдера
+(``/sensors/providers`` → ``/sensors/discover/{kind}`` → ``POST /sensors``);
 MagicAir-датчики появляются сами при опросе облака — здесь их можно
 переименовать, привязать к комнате или удалить. Изменение реестра публикует
 ``device.list_changed`` (MQTT-переподписка + Яндекс-discovery), CRUD
@@ -26,10 +27,10 @@ from easy_breezy.automation.maintain import (
     disable_conflicting_maintain,
 )
 from easy_breezy.container import AppContainer
+from easy_breezy.core.discovery import DiscoveredSensor
 from easy_breezy.core.events import TOPIC_DEVICE_LIST_CHANGED
 from easy_breezy.core.sensors import METRICS, metric_is_stale
-from easy_breezy.integrations.qingping.client import DiscoveredQingping
-from easy_breezy.integrations.qingping.parser import SOURCE_PREFIX, source_key
+from easy_breezy.integrations.providers import SensorProvider
 from easy_breezy.storage.models import Sensor, Trigger
 from easy_breezy.storage.repos import (
     DeviceRepo,
@@ -56,11 +57,24 @@ class SensorView(BaseModel):
     last_values: dict[str, float] | None
     last_seen_at: int | None
     last_metric_at: dict[str, int] | None
+    capabilities: list[str]
+    """Метрики датчика: заявленные провайдером + реально пришедшие."""
     metric_stale: dict[str, bool]
     stale: bool
 
     @classmethod
-    def from_record(cls, record: Sensor, *, now: float) -> SensorView:
+    def from_record(
+        cls,
+        record: Sensor,
+        *,
+        now: float,
+        providers: list[SensorProvider] | None = None,
+    ) -> SensorView:
+        declared = next(
+            (p.metrics for p in providers or [] if p.kind == record.kind), ()
+        )
+        observed = set(record.last_values or {})
+        capabilities = [m for m in METRICS if m in declared or m in observed]
         return cls(
             id=record.id,
             kind=record.kind,
@@ -70,9 +84,10 @@ class SensorView(BaseModel):
             last_values=record.last_values,
             last_seen_at=record.last_seen_at,
             last_metric_at=record.last_metric_at,
+            capabilities=capabilities,
             metric_stale={
                 metric: metric_is_stale((record.last_metric_at or {}).get(metric), now)
-                for metric in METRICS
+                for metric in capabilities
             },
             stale=not record.last_values
             or any(
@@ -83,20 +98,49 @@ class SensorView(BaseModel):
 
 
 class SensorCreate(BaseModel):
-    """Ручная регистрация MQTT-датчика (MagicAir приходят из облака сами)."""
+    """Регистрация датчика: провайдер + адрес (MAC, топик) из поиска/ввода."""
 
     name: str = Field(min_length=1, max_length=100)
-    kind: Literal["mqtt", "qingping_ble"] = "mqtt"
-    source_key: str = Field(min_length=1, max_length=200)
+    kind: str = Field(min_length=1, max_length=30)
+    address: str = Field(min_length=1, max_length=200)
     room_id: int | None = None
 
-    @model_validator(mode="after")
-    def _normalize_source(self) -> SensorCreate:
-        if self.kind == "qingping_ble":
-            self.source_key = source_key(self.source_key.strip())
-        elif self.source_key.startswith(SOURCE_PREFIX):
-            raise ValueError("этот префикс зарезервирован для Qingping BLE")
-        return self
+
+class ProviderView(BaseModel):
+    kind: str
+    title: str
+    transport: str
+    description: str
+    metrics: list[str]
+    manual: bool
+    discoverable: bool
+    address_label: str | None
+    address_placeholder: str | None
+    available: bool
+    unavailable_reason: str | None
+
+    @classmethod
+    def from_provider(cls, provider: SensorProvider) -> ProviderView:
+        return cls(
+            kind=provider.kind,
+            title=provider.title,
+            transport=provider.transport,
+            description=provider.description,
+            metrics=list(provider.metrics),
+            manual=provider.manual,
+            discoverable=provider.discoverable,
+            address_label=provider.address_label,
+            address_placeholder=provider.address_placeholder,
+            available=provider.available,
+            unavailable_reason=provider.unavailable_reason,
+        )
+
+
+def _provider(container: AppContainer, kind: str) -> SensorProvider:
+    for provider in container.sensor_providers:
+        if provider.kind == kind:
+            return provider
+    raise HTTPException(status_code=404, detail="неизвестный тип датчика")
 
 
 class SensorUpdate(BaseModel):
@@ -132,7 +176,7 @@ class TriggerBody(BaseModel):
 
     name: str = Field(min_length=1, max_length=100)
     sensor_id: int
-    metric: Literal["co2", "temperature", "humidity"]
+    metric: Literal["co2", "temperature", "humidity", "pm25", "pm10", "battery"]
     kind: Literal["threshold", "maintain"] = "threshold"
     op: Literal[">", "<"] | None = None
     threshold: float
@@ -316,11 +360,42 @@ async def list_sensors(container: ContainerDep) -> list[SensorView]:
     now = time.time()
     async with container.db.session() as session:
         sensors = await SensorRepo(session).list_all()
-    return [SensorView.from_record(record, now=now) for record in sensors]
+    return [
+        SensorView.from_record(record, now=now, providers=container.sensor_providers)
+        for record in sensors
+    ]
+
+
+@router.get("/sensors/providers")
+async def list_providers(container: ContainerDep) -> list[ProviderView]:
+    return [ProviderView.from_provider(p) for p in container.sensor_providers]
+
+
+@router.post("/sensors/discover/{kind}")
+async def discover_sensors(
+    kind: str, container: ContainerDep
+) -> list[DiscoveredSensor]:
+    provider = _provider(container, kind)
+    discovery = container.discovery(kind)
+    if not provider.discoverable or discovery is None:
+        raise HTTPException(status_code=400, detail="этот тип не поддерживает поиск")
+    if not provider.available:
+        raise HTTPException(status_code=503, detail=provider.unavailable_reason)
+    try:
+        return await discovery.discover()
+    except ValueError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @router.post("/sensors", status_code=201)
 async def add_sensor(body: SensorCreate, container: ContainerDep) -> SensorView:
+    provider = _provider(container, body.kind)
+    if not provider.manual:
+        raise HTTPException(status_code=400, detail="этот тип добавляется сам")
+    try:
+        source_key = provider.source_key(body.address)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     try:
         async with container.db.session() as session:
             if (
@@ -329,24 +404,18 @@ async def add_sensor(body: SensorCreate, container: ContainerDep) -> SensorView:
             ):
                 raise HTTPException(status_code=404, detail="комната не найдена")
             record = await SensorRepo(session).create(
-                kind=body.kind, name=body.name, source_key=body.source_key
+                kind=body.kind, name=body.name, source_key=source_key
             )
             record.room_id = body.room_id
-            view = SensorView.from_record(record, now=time.time())
+            view = SensorView.from_record(
+                record, now=time.time(), providers=container.sensor_providers
+            )
     except IntegrityError as exc:
         raise HTTPException(
             status_code=409, detail="датчик с таким источником уже есть"
         ) from exc
     container.events.publish(TOPIC_DEVICE_LIST_CHANGED, {"sensor_id": view.id})
     return view
-
-
-@router.post("/sensors/qingping/scan")
-async def scan_qingping(container: ContainerDep) -> list[DiscoveredQingping]:
-    try:
-        return await container.qingping.discover()
-    except ValueError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @router.patch("/sensors/{sensor_id}")
@@ -366,7 +435,9 @@ async def update_sensor(
             ):
                 raise HTTPException(status_code=404, detail="комната не найдена")
             record.room_id = body.room_id
-        view = SensorView.from_record(record, now=time.time())
+        view = SensorView.from_record(
+            record, now=time.time(), providers=container.sensor_providers
+        )
     container.events.publish(TOPIC_DEVICE_LIST_CHANGED, {"sensor_id": sensor_id})
     return view
 

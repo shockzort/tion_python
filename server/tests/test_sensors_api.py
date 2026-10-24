@@ -11,7 +11,7 @@ from tests.test_yandex_api import linked_headers
 
 
 def create_sensor(client: TestClient, **overrides: Any) -> dict[str, Any]:
-    body = {"name": "CO₂ спальня", "source_key": "home/bedroom/air"}
+    body = {"name": "CO₂ спальня", "kind": "mqtt", "address": "home/bedroom/air"}
     body.update(overrides)
     response = client.post("/api/sensors", json=body)
     assert response.status_code == 201, response.text
@@ -29,7 +29,7 @@ def test_sensor_crud(client_app: ClientAndApp) -> None:
 
     duplicate = client.post(
         "/api/sensors",
-        json={"name": "Дубль", "source_key": "home/bedroom/air"},
+        json={"name": "Дубль", "kind": "mqtt", "address": "home/bedroom/air"},
     )
     assert duplicate.status_code == 409
 

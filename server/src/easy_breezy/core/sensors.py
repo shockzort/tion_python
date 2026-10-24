@@ -1,6 +1,6 @@
 """Реестр датчиков и приём измерений (план §10, FR-25/26/27).
 
-Единая точка входа для MagicAir-опроса и MQTT-инжеста: обновляет
+Единая точка входа для MagicAir-опроса, MQTT-инжеста и Qingping: обновляет
 ``last_values``/``last_seen_at`` в реестре и публикует ``sensor.updated`` —
 дальше телеметрия пишет историю, триггеры оценивают условия, UI обновляется.
 
@@ -30,11 +30,33 @@ log = structlog.get_logger(__name__)
 STALE_AFTER_SECONDS = 300
 """Данные старше 5 минут считаются устаревшими (FR-25)."""
 
-METRICS = ("co2", "temperature", "humidity")
+METRICS = ("co2", "temperature", "humidity", "pm25", "pm10", "battery")
+"""Известные метрики датчиков; набор конкретного датчика — его capabilities."""
+
+CLIMATE_METRICS = ("co2", "temperature", "humidity")
+"""Базовый набор климат-датчика (MagicAir, неизвестный MQTT-источник)."""
+
+METRIC_RANGES: dict[str, tuple[float, float]] = {
+    "co2": (0, 10000),
+    "temperature": (-40, 85),
+    "humidity": (0, 100),
+    "pm25": (0, 1000),
+    "pm10": (0, 1000),
+    "battery": (0, 100),
+}
+"""Физически правдоподобные значения; вне диапазона — сбой датчика/разбора."""
+
+
+def in_range(metric: str, value: float) -> bool:
+    """Значение метрики внутри правдоподобного диапазона."""
+    low, high = METRIC_RANGES[metric]
+    return low <= value <= high
+
 
 KIND_MAGICAIR = "magicair"
 KIND_MQTT = "mqtt"
 KIND_QINGPING_BLE = "qingping_ble"
+KIND_QINGPING_MQTT = "qingping_mqtt"
 
 
 def metric_is_stale(ts: int | float | None, now: float) -> bool:

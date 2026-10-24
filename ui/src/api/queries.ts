@@ -15,7 +15,7 @@ import type {
   CommandResult,
   Device,
   FoundBreezer,
-  FoundQingping,
+  DiscoveredSensor,
   Group,
   GroupCommandResult,
   Room,
@@ -23,6 +23,8 @@ import type {
   ScenarioAction,
   Schedule,
   Sensor,
+  SensorMetric,
+  SensorProvider,
   TelemetrySeries,
   Trigger,
   TriggerKind,
@@ -361,7 +363,7 @@ export function useDeleteSchedule() {
 export type TriggerBody = {
   name: string
   sensor_id: number
-  metric: 'co2' | 'temperature' | 'humidity'
+  metric: SensorMetric
   kind?: TriggerKind
   op?: '>' | '<'
   threshold: number
@@ -390,7 +392,7 @@ export function useSensors() {
 export function useAddSensor() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (body: { name: string; source_key: string; kind?: 'mqtt' | 'qingping_ble'; room_id?: number }) =>
+    mutationFn: (body: { name: string; kind: string; address: string; room_id?: number }) =>
       api<Sensor>('/api/sensors', { method: 'POST', json: body }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.sensors }),
   })
@@ -405,9 +407,18 @@ export function useUpdateSensor() {
   })
 }
 
-export function useScanQingping() {
+export function useSensorProviders() {
+  return useQuery({
+    queryKey: ['sensor-providers'],
+    queryFn: () => api<SensorProvider[]>('/api/sensors/providers'),
+    staleTime: 5 * 60_000,
+  })
+}
+
+export function useDiscoverSensors() {
   return useMutation({
-    mutationFn: () => api<FoundQingping[]>('/api/sensors/qingping/scan', { method: 'POST' }),
+    mutationFn: (kind: string) =>
+      api<DiscoveredSensor[]>(`/api/sensors/discover/${encodeURIComponent(kind)}`, { method: 'POST' }),
   })
 }
 

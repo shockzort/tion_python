@@ -47,8 +47,14 @@ KEY = "qingping_ble:54:48:E6:8F:88:D6"
 @pytest.mark.parametrize(
     ("packet", "expected"),
     [
-        (PACKET, {"temperature": 25.9, "humidity": 53.4, "co2": 549}),
-        (PACKET_36, {"temperature": 25.3, "humidity": 58.5, "co2": 609}),
+        (
+            PACKET,
+            {"temperature": 25.9, "humidity": 53.4, "co2": 549, "pm25": 2, "pm10": 2},
+        ),
+        (
+            PACKET_36,
+            {"temperature": 25.3, "humidity": 58.5, "co2": 609, "pm25": 9, "pm10": 9},
+        ),
     ],
 )
 def test_recorded_cgdn1(packet: bytes, expected: dict[str, float]) -> None:
@@ -96,9 +102,9 @@ async def test_sampling_partial_freshness_and_measurement_time(db: Database) -> 
         await clock.advance(25)
         await listener.flush()
         buffered = [await sub.get(), await sub.get()]
-        assert {(e.data["ts"], tuple(e.data["metrics"])) for e in buffered} == {
-            (1001, ("co2",)),
-            (1005, ("temperature", "humidity")),
+        assert {(e.data["ts"], frozenset(e.data["metrics"])) for e in buffered} == {
+            (1001, frozenset({"co2", "pm25", "pm10"})),
+            (1005, frozenset({"temperature", "humidity"})),
         }
         # Молчание не производит события из старого кэша.
         await clock.advance(301)
@@ -112,20 +118,22 @@ async def test_sampling_partial_freshness_and_measurement_time(db: Database) -> 
             assert stored is not None
             assert stored.last_metric_at == {
                 "co2": 1001,
+                "pm25": 1001,
+                "pm10": 1001,
                 "temperature": 1331,
                 "humidity": 1331,
             }
         # Продолжающиеся одинаковые CO₂ также доставляются.
         listener.receive(PACKET)
         await listener.flush()
-        assert (await sub.get()).data["metrics"] == {"co2": 549}
+        assert (await sub.get()).data["metrics"] == {"co2": 549, "pm25": 2, "pm10": 2}
 
     # Время точки — приём пакета, а не время flush/обработки.
     telemetry = TelemetryService(db, events, now=lambda: 9999)
     await telemetry._record(first)
     async with db.session() as session:
         points = list((await session.execute(select(TelemetryRaw))).scalars())
-    assert len(points) == 3 and {point.ts for point in points} == {1000}
+    assert len(points) == 5 and {point.ts for point in points} == {1000}
     # Неизвестный CGDN1 не регистрируется и не растит буфер.
     listener.receive(PACKET_36)
     assert all(key[0] == KEY for key in listener._pending)
@@ -274,7 +282,7 @@ async def test_listener_idle_retry_preemption_and_stop(
         await asyncio.sleep(0)
         listener.receive(PACKET, -42)
         found = await discovery
-        assert len(found) == 1 and found[0].registered and found[0].rssi == -42
+        assert len(found) == 1 and found[0].registered and found[0].signal_dbm == -42
     finally:
         await listener.stop()
     assert active == 0 and not gate.locked()
@@ -321,7 +329,7 @@ def test_qingping_registration_and_backward_compatible_mqtt(
     client_app: ClientAndApp,
 ) -> None:
     client, app = client_app
-    assert client.post("/api/sensors/qingping/scan").status_code == 401
+    assert client.post("/api/sensors/discover/qingping_ble").status_code == 401
     bootstrap_admin(client, app)
     room = client.post("/api/rooms", json={"name": "Комната"}).json()
     result = client.post(
@@ -329,7 +337,7 @@ def test_qingping_registration_and_backward_compatible_mqtt(
         json={
             "kind": "qingping_ble",
             "name": "Q",
-            "source_key": "54:48:e6:8f:88:d6",
+            "address": "54:48:e6:8f:88:d6",
             "room_id": room["id"],
         },
     )
@@ -340,24 +348,26 @@ def test_qingping_registration_and_backward_compatible_mqtt(
     assert (
         client.post(
             "/api/sensors",
-            json={"kind": "qingping_ble", "name": "Q2", "source_key": KEY},
+            json={"kind": "qingping_ble", "name": "Q2", "address": KEY},
         ).status_code
         == 409
     )
     assert (
         client.post(
             "/api/sensors",
-            json={"kind": "qingping_ble", "name": "Q", "source_key": "garbage"},
+            json={"kind": "qingping_ble", "name": "Q", "address": "garbage"},
         ).status_code
         == 422
     )
     assert (
-        client.post("/api/sensors", json={"name": "Q", "source_key": KEY}).status_code
+        client.post(
+            "/api/sensors", json={"name": "Q", "kind": "mqtt", "address": KEY}
+        ).status_code
         == 422
     )
     assert (
         client.post(
-            "/api/sensors", json={"name": "M", "source_key": "home/air"}
+            "/api/sensors", json={"name": "M", "kind": "mqtt", "address": "home/air"}
         ).json()["kind"]
         == "mqtt"
     )

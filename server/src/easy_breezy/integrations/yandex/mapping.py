@@ -40,6 +40,9 @@ SENSOR_INSTANCES: dict[str, tuple[str, str]] = {
     "co2": ("co2_level", "unit.ppm"),
     "temperature": ("temperature", "unit.temperature.celsius"),
     "humidity": ("humidity", "unit.percent"),
+    "pm25": ("pm2.5_density", "unit.density.mcg_m3"),
+    "pm10": ("pm10_density", "unit.density.mcg_m3"),
+    "battery": ("battery_level", "unit.percent"),
 }
 
 ERROR_INVALID_ACTION = "INVALID_ACTION"

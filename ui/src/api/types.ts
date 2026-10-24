@@ -1,3 +1,4 @@
+import type { SensorMetric } from '../lib/metrics'
 // DTO REST-API (зеркало pydantic-схем сервера)
 
 export type Mode = 'outside' | 'recirculation'
@@ -86,24 +87,42 @@ export type GroupCommandResult = {
   rejected: string | null
 }
 
+export type { SensorMetric } from '../lib/metrics'
+
 export type Sensor = {
   id: number
-  kind: 'magicair' | 'mqtt' | 'qingping_ble'
+  kind: string
   name: string
   source_key: string
   room_id: number | null
-  last_values: Partial<Record<'co2' | 'temperature' | 'humidity', number>> | null
+  last_values: Partial<Record<SensorMetric, number>> | null
   last_seen_at: number | null
   last_metric_at?: Partial<Record<SensorMetric, number>> | null
-  metric_stale?: Record<SensorMetric, boolean>
+  capabilities: SensorMetric[]
+  metric_stale?: Partial<Record<SensorMetric, boolean>>
   stale: boolean
 }
 
-export type SensorMetric = 'co2' | 'temperature' | 'humidity'
+export type SensorProvider = {
+  kind: string
+  title: string
+  transport: 'cloud' | 'mqtt' | 'ble'
+  description: string
+  metrics: SensorMetric[]
+  manual: boolean
+  discoverable: boolean
+  address_label: string | null
+  address_placeholder: string | null
+  available: boolean
+  unavailable_reason: string | null
+}
 
-export type FoundQingping = {
+export type DiscoveredSensor = {
+  kind: string
   source_key: string
-  rssi: number
+  address: string
+  model: string | null
+  signal_dbm: number | null
   metrics: Partial<Record<SensorMetric, number>>
   registered: boolean
 }
