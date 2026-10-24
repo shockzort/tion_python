@@ -113,14 +113,18 @@
       ansible.builtin.copy:
         src: "../mosquitto/{{ item }}"
         dest: "{{ eb_root }}/mosquitto/config/{{ item }}"
-        mode: "0644"
+        # mosquitto 2.x требует владельца-пользователя брокера и закрытые права
+        owner: "1883"
+        group: "1883"
+        mode: "0600"
       loop: [mosquitto.conf, acl]
       notify: Перезапустить брокер
 
     - name: Учётки брокера (пароли в .env — генерируются, если их нет)
       ansible.builtin.script: ../mosquitto/eb-mqtt-setup.sh
       register: mqtt_setup
-      changed_when: "'changed' in mqtt_setup.stdout_lines"
+      # stdout script-модуля идёт через pty (\r\n) — ищем строку целиком
+      changed_when: mqtt_setup.stdout is search('^changed\\s*$', multiline=True)
       notify: Перезапустить брокер
 
     - name: Скрипт доставки сертификата
