@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { fireEvent } from '@testing-library/react'
+import { beforeEach, describe, expect, it } from 'vitest'
 
 import type { Sensor } from '../api/types'
 import SensorCard from './SensorCard'
@@ -21,6 +22,8 @@ function makeSensor(overrides: Partial<Sensor> = {}): Sensor {
 
 const value = (text: string) => screen.getByText(text).className
 const color = (text: string) => screen.getByText(text).style.color
+
+beforeEach(() => localStorage.clear())
 
 describe('SensorCard', () => {
   it('новая температура не делает старый CO₂ свежим', () => {
@@ -77,5 +80,27 @@ describe('SensorCard', () => {
   it('без данных пишет «ждём данные»', () => {
     render(<SensorCard sensor={makeSensor({ last_values: null, stale: true })} />)
     expect(screen.getByText('ждём данные…')).toBeTruthy()
+  })
+
+  it('сворачивается в компактную строку и запоминает это per-датчик', () => {
+    const sensor = makeSensor({ last_values: { co2: 757, temperature: 24.9, humidity: 41.4 } })
+    const { unmount } = render(<SensorCard sensor={sensor} />)
+    const header = screen.getByRole('button', { name: /Гостиная CO₂/ })
+    expect(header).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByText('ppm')).toBeTruthy()
+
+    fireEvent.click(header)
+    expect(header).toHaveAttribute('aria-expanded', 'false')
+    expect(localStorage.getItem('eb:sensor-collapsed:1')).toBe('true')
+    // компактно: подписи CO₂ перед значением, единицы после, цвет сохраняется
+    expect(screen.getByText('757').parentElement?.textContent).toBe('CO₂ 757')
+    expect(screen.getByText('24,9').parentElement?.textContent).toBe('24,9 °C')
+    expect(screen.getByText('41,4').parentElement?.textContent).toBe('41,4 %')
+    expect(color('24,9')).toBe('rgb(155, 216, 106)')
+    expect(screen.queryByText('ppm')).toBeNull()
+
+    unmount()
+    render(<SensorCard sensor={sensor} />)
+    expect(screen.getByRole('button', { name: /Гостиная CO₂/ })).toHaveAttribute('aria-expanded', 'false')
   })
 })

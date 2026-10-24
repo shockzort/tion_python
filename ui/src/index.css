@@ -30,8 +30,8 @@
 
   /* Заливка активных элементов (кнопки, выбранный сегмент, переключатель):
      спокойный зелёный в тон «хорошему» CO₂ на карточках датчиков. */
-  --color-accent: #5ad280;
-  --color-accent-hover: #6ddc90;
+  --color-accent: #5ac87f;
+  --color-accent-hover: #6ad28d;
 
   --radius-xl: 0.875rem;
   --radius-2xl: 1.375rem;

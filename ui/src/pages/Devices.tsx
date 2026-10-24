@@ -368,7 +368,7 @@ function GroupEditor({
               onChange={(event) =>
                 toggleMember(device.uuid, event.target.checked)
               }
-              className="accent-sky-500"
+              className="accent-accent"
             />
             {device.name}
           </label>
