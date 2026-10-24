@@ -24,7 +24,11 @@ export default function SensorCard({ sensor, roomName }: { sensor: Sensor; roomN
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="truncate font-medium">{sensor.name}</p>
-          {roomName && <p className="text-xs text-slate-500">{roomName}</p>}
+          <p className="text-xs text-slate-500">
+            {[roomName, sensor.last_seen_at ? `обновлено ${new Date(sensor.last_seen_at * 1000).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' })}` : null]
+              .filter(Boolean)
+              .join(' · ')}
+          </p>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
           {battery !== undefined && battery < 100 && (
@@ -41,12 +45,12 @@ export default function SensorCard({ sensor, roomName }: { sensor: Sensor; roomN
             const value = values[metric] as number
             const tone = stale(metric) ? 'text-slate-500' : QUALITY_TONE[quality(metric, value)]
             return (
-              <div key={metric} title={age(metric)} className="flex flex-col rounded-xl bg-slate-950/50 px-2.5 py-2">
-                <span className="text-[11px] uppercase tracking-wide text-slate-500">{METRIC_INFO[metric].short}</span>
-                <span className={`text-lg font-semibold tabular-nums ${tone}`} data-metric={metric}>
+              <div key={metric} title={age(metric)} className="flex flex-col rounded-xl bg-slate-950/70 px-3 py-2">
+                <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">{METRIC_INFO[metric].short}</span>
+                <span className={`text-2xl font-extrabold tabular-nums ${tone}`} data-metric={metric}>
                   {formatValue(metric, value)}
                 </span>
-                <span className="text-[11px] text-slate-500">{METRIC_INFO[metric].unit}</span>
+                <span className="text-[11px] text-slate-400">{METRIC_INFO[metric].unit}</span>
               </div>
             )
           })}

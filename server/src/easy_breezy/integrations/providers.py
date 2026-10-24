@@ -72,7 +72,7 @@ def build_providers(*, mqtt_enabled: bool, ble_enabled: bool) -> list[SensorProv
             transport="mqtt",
             description=(
                 "Датчик шлёт показания на брокер сервиса по Wi-Fi раз в минуту. "
-                "Настройка — один раз на портале Qingping (docs/qingping.md)."
+                "Настройка — один раз на портале Qingping (README, «Датчики воздуха»)."
             ),
             metrics=QINGPING_METRICS,
             manual=True,

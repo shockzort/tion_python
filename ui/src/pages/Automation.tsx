@@ -81,7 +81,7 @@ function TabButton({
       onClick={onClick}
       className={`rounded-xl px-4 py-2 text-sm font-medium transition-colors ${
         active
-          ? 'bg-sky-600 text-white'
+          ? 'bg-sky-400 text-slate-950 font-semibold'
           : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
       }`}
     >
@@ -701,7 +701,7 @@ function ScheduleEditor({
                     onClick={() => toggleDay(day)}
                     className={`rounded-lg px-2.5 py-1.5 text-sm transition-colors ${
                       active
-                        ? 'bg-sky-600 text-white'
+                        ? 'bg-sky-400 text-slate-950 font-semibold'
                         : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
                     }`}
                   >
@@ -1229,7 +1229,7 @@ function TriggerEditor({
                   onClick={() => toggleTarget(value)}
                   className={`rounded-lg px-2.5 py-1.5 text-sm transition-colors ${
                     active
-                      ? 'bg-sky-600 text-white'
+                      ? 'bg-sky-400 text-slate-950 font-semibold'
                       : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
                   }`}
                 >
@@ -1247,7 +1247,7 @@ function TriggerEditor({
                   onClick={() => toggleTarget(value)}
                   className={`rounded-lg px-2.5 py-1.5 text-sm transition-colors ${
                     active
-                      ? 'bg-sky-600 text-white'
+                      ? 'bg-sky-400 text-slate-950 font-semibold'
                       : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
                   }`}
                 >

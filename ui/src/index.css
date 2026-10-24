@@ -1,16 +1,52 @@
 @import 'tailwindcss';
+@import '@fontsource-variable/manrope';
+
+/* Тема «ночной воздух»: глубокий синий фон, мятный акцент.
+   Шкалы slate/sky переопределены целиком — компоненты пишут привычные
+   классы (bg-slate-900, text-sky-400), а палитра меняется в одном месте. */
+@theme {
+  --font-sans: 'Manrope Variable', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+
+  --color-slate-50: #f4f7fb;
+  --color-slate-100: #e6edf7;
+  --color-slate-200: #c7d2e3;
+  --color-slate-300: #a9b7cc;
+  --color-slate-400: #8fa3bf;
+  --color-slate-500: #7286a3;
+  --color-slate-600: #45567a;
+  --color-slate-700: #2a3852;
+  --color-slate-800: #1e2a40;
+  --color-slate-900: #121a2b;
+  --color-slate-950: #0b1220;
+
+  --color-sky-200: #ccfbf1;
+  --color-sky-300: #a7f3e4;
+  --color-sky-400: #5eead4;
+  --color-sky-500: #2dd4bf;
+  --color-sky-600: #14b8a6;
+  --color-sky-700: #0f766e;
+  --color-sky-800: #134e4a;
+  --color-sky-900: #123a37;
+
+  --radius-xl: 0.875rem;
+  --radius-2xl: 1.375rem;
+}
 
 :root {
   color-scheme: dark;
 }
 
 body {
-  font-family:
-    'Inter Variable',
-    system-ui,
-    -apple-system,
-    'Segoe UI',
-    Roboto,
-    sans-serif;
+  background: var(--color-slate-950);
+  font-family: var(--font-sans);
+  font-feature-settings: 'tnum' 1;
   -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+
+select,
+input,
+textarea,
+button {
+  font: inherit;
 }

@@ -6,10 +6,11 @@ type ButtonVariant = 'primary' | 'ghost' | 'danger'
 
 const buttonStyles: Record<ButtonVariant, string> = {
   primary:
-    'bg-sky-600 text-white hover:bg-sky-500 disabled:bg-slate-700 disabled:text-slate-400',
+    'bg-sky-400 text-slate-950 hover:bg-sky-300 disabled:bg-slate-700 disabled:text-slate-400',
   ghost:
-    'bg-slate-800 text-slate-200 hover:bg-slate-700 disabled:text-slate-500',
-  danger: 'bg-rose-600/80 text-white hover:bg-rose-500 disabled:bg-slate-700',
+    'border border-slate-800 bg-slate-950/60 text-slate-200 hover:border-slate-700 hover:bg-slate-800 disabled:text-slate-500',
+  danger:
+    'border border-rose-500/30 bg-rose-500/10 text-rose-300 hover:bg-rose-500/20 disabled:border-slate-800 disabled:bg-slate-900 disabled:text-slate-500',
 }
 
 export function Button({
@@ -20,7 +21,7 @@ export function Button({
   return (
     <button
       type="button"
-      className={`rounded-xl px-4 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed ${buttonStyles[variant]} ${className}`}
+      className={`inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl px-4 py-2 text-sm font-semibold transition-colors disabled:cursor-not-allowed ${buttonStyles[variant]} ${className}`}
       {...props}
     />
   )
@@ -35,7 +36,7 @@ export function Card({
 }) {
   return (
     <section
-      className={`rounded-2xl border border-slate-800 bg-slate-900/60 p-4 ${className}`}
+      className={`rounded-2xl border border-slate-800 bg-slate-900 p-4 ${className}`}
     >
       {children}
     </section>
@@ -45,10 +46,10 @@ export function Card({
 type BadgeTone = 'ok' | 'warn' | 'error' | 'muted'
 
 const badgeStyles: Record<BadgeTone, string> = {
-  ok: 'bg-emerald-500/10 text-emerald-400',
-  warn: 'bg-amber-500/10 text-amber-400',
-  error: 'bg-rose-500/10 text-rose-400',
-  muted: 'bg-slate-700/40 text-slate-400',
+  ok: 'bg-emerald-500/10 text-emerald-300',
+  warn: 'bg-amber-500/10 text-amber-300',
+  error: 'bg-rose-500/10 text-rose-300',
+  muted: 'border border-slate-800 bg-slate-950/60 text-slate-300',
 }
 
 export function Badge({
@@ -60,7 +61,7 @@ export function Badge({
 }) {
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs ${badgeStyles[tone]}`}
+      className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold ${badgeStyles[tone]}`}
     >
       {children}
     </span>
@@ -112,13 +113,13 @@ export function Toggle({
         aria-label={label}
         disabled={disabled}
         onClick={() => onChange(!checked)}
-        className={`relative h-6 w-11 rounded-full transition-colors disabled:cursor-not-allowed ${
-          checked ? 'bg-sky-600' : 'bg-slate-700'
+        className={`relative h-7 w-12 shrink-0 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+          checked ? 'bg-sky-400' : 'bg-slate-700'
         }`}
       >
         <span
-          className={`absolute top-0.5 size-5 rounded-full bg-white transition-all ${
-            checked ? 'left-[22px]' : 'left-0.5'
+          className={`absolute top-0.5 size-6 rounded-full transition-all ${
+            checked ? 'left-[22px] bg-slate-950' : 'left-0.5 bg-slate-300'
           }`}
         />
       </button>

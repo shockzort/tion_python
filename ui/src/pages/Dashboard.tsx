@@ -49,7 +49,6 @@ export default function Dashboard() {
     )
   }
 
-  const roomNames = new Map(rooms.data?.map((room) => [room.id, room.name]))
   const online = devices.data.filter((d) => d.connection === 'online').length
 
   const allOff = async () => {
@@ -61,14 +60,27 @@ export default function Dashboard() {
     }
   }
 
+  // комнаты — главный разрез: датчик воздуха и бризеры одной комнаты рядом
+  const groups = [
+    ...(rooms.data ?? []).map((room) => ({ key: String(room.id), title: room.name, roomId: room.id as number | null })),
+    { key: 'none', title: 'Без комнаты', roomId: null },
+  ]
+    .map((group) => ({
+      ...group,
+      sensors: (sensors.data ?? []).filter((sensor) => sensor.room_id === group.roomId),
+      devices: devices.data.filter((device) => device.room_id === group.roomId),
+    }))
+    .filter((group) => group.sensors.length > 0 || group.devices.length > 0)
+
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-4">
       <IntentBar />
 
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-slate-400">
+      <div className="flex items-center justify-between gap-2">
+        <span className="inline-flex items-center gap-2 text-sm text-slate-400">
+          <span className={`size-2 rounded-full ${online === devices.data.length ? 'bg-emerald-400' : 'bg-amber-400'}`} />
           На связи {online} из {devices.data.length}
-        </p>
+        </span>
         <Button variant="ghost" onClick={allOff} disabled={poweringOff}>
           {poweringOff ? 'Выключаем…' : 'Все выкл'}
         </Button>
@@ -77,8 +89,7 @@ export default function Dashboard() {
       {scenarios.data !== undefined && scenarios.data.length > 0 && (
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
           {scenarios.data.map((scenario) => {
-            const running =
-              runScenario.isPending && runScenario.variables === scenario.id
+            const running = runScenario.isPending && runScenario.variables === scenario.id
             return (
               <Button
                 key={scenario.id}
@@ -86,42 +97,37 @@ export default function Dashboard() {
                 disabled={runScenario.isPending}
                 onClick={() => runScenario.mutate(scenario.id)}
               >
-                {running ? 'Запускаем…' : `▶ ${scenario.name}`}
+                {running ? 'Запускаем…' : scenario.name}
               </Button>
             )
           })}
         </div>
       )}
 
-      {sensors.data !== undefined && sensors.data.length > 0 && (
-        <div className="grid gap-2 sm:grid-cols-2">
-          {sensors.data.map((sensor) => (
-            <SensorCard
-              key={sensor.id}
-              sensor={sensor}
-              roomName={
-                sensor.room_id !== null ? roomNames.get(sensor.room_id) : undefined
-              }
-            />
-          ))}
-        </div>
-      )}
-
-      <div className="grid gap-3 sm:grid-cols-2">
-        {devices.data.map((device) => (
-          <DeviceCard
-            key={device.uuid}
-            device={device}
-            roomName={
-              device.room_id !== null ? roomNames.get(device.room_id) : undefined
-            }
-            onCommand={(body) =>
-              sendCommand.mutate({ uuid: device.uuid, body })
-            }
-            onReleaseHold={() => releaseHold.mutate(device.uuid)}
-          />
-        ))}
-      </div>
+      {groups.map((group) => (
+        <section key={group.key} aria-label={group.title} className="flex flex-col gap-2.5">
+          <h2 className="px-1 text-lg font-bold tracking-tight">{group.title}</h2>
+          {group.sensors.length > 0 && (
+            <div className="grid gap-2.5 sm:grid-cols-2">
+              {group.sensors.map((sensor) => (
+                <SensorCard key={sensor.id} sensor={sensor} />
+              ))}
+            </div>
+          )}
+          {group.devices.length > 0 && (
+            <div className="grid gap-2.5 sm:grid-cols-2">
+              {group.devices.map((device) => (
+                <DeviceCard
+                  key={device.uuid}
+                  device={device}
+                  onCommand={(body) => sendCommand.mutate({ uuid: device.uuid, body })}
+                  onReleaseHold={() => releaseHold.mutate(device.uuid)}
+                />
+              ))}
+            </div>
+          )}
+        </section>
+      ))}
     </div>
   )
 }

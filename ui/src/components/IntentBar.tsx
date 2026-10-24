@@ -34,7 +34,7 @@ export default function IntentBar() {
         <button
           type="submit"
           disabled={executeIntent.isPending || text.trim() === ''}
-          className="rounded-xl bg-sky-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sky-500 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
+          className="rounded-xl bg-sky-400 px-4 py-2 text-sm font-semibold text-slate-950 transition-colors hover:bg-sky-300 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
         >
           {executeIntent.isPending ? '…' : '→'}
         </button>

@@ -42,7 +42,7 @@ describe('SensorCard', () => {
     expect(screen.getByText('950')).toBeTruthy()
     expect(screen.getByText('24,8')).toBeTruthy()
     expect(screen.getByText('57,5')).toBeTruthy()
-    expect(screen.getByText('Гостиная')).toBeTruthy()
+    expect(screen.getByText(/^Гостиная · обновлено/)).toBeTruthy()
   })
 
   it('показывает пыль и заряд, если датчик их передаёт', () => {

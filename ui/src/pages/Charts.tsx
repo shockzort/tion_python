@@ -334,7 +334,7 @@ function ChartPanelCard({
   const periodButton = (active: boolean) =>
     `rounded-lg px-2 py-1.5 text-sm transition-colors ${
       active
-        ? 'bg-sky-600 text-white'
+        ? 'bg-sky-400 text-slate-950 font-semibold'
         : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
     }`
 
