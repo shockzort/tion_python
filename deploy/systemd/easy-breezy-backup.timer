@@ -1,0 +1,13 @@
+# Раз в ночь, после снапшота БД самого сервиса (03:30). Persistent=true
+# догоняет пропуск, если NUC был выключен.
+
+[Unit]
+Description=Easy Breezy — таймер ночного бэкапа на VPS
+
+[Timer]
+OnCalendar=*-*-* 04:15
+RandomizedDelaySec=15m
+Persistent=true
+
+[Install]
+WantedBy=timers.target
