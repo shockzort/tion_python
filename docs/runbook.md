@@ -197,6 +197,71 @@ sudo systemctl start easy-breezy   # миграции докатятся сам�
 
 Проверенная процедура — тест `test_backup_and_restore_roundtrip`.
 
+### Ночной бэкап всей инсталляции на VPS
+
+Снапшот БД живёт на том же диске, что и сама БД, поэтому раз в ночь
+(`easy-breezy-backup.timer`, ~04:15, после снапшота 03:30) хост собирает
+**всю инсталляцию** в один архив, шифрует его и увозит на VPS:
+
+| В архиве | Зачем |
+|---|---|
+| свежий `data/backups/easy_breezy-*.db.gz` | устройства, комнаты, датчики, автоматика, пользователи, телеметрия |
+| `.env`, `deploy.env`, `docker-compose.yml`, `frpc.toml`, `cert-sync.env`, `backup-offsite.env` | конфигурация и секреты |
+| `data/vapid_private.pem` | без него подписки на пуши придётся оформлять заново |
+| `tls/`, `nginx/`, `mosquitto/config/` | LAN-вход и учётки брокера датчиков |
+| `/root/.ssh/eb-cert*` | ключ доставки сертификата с VPS |
+| `/var/lib/bluetooth` | сопряжения бризеров — без них каждый 4S сопрягать заново |
+
+- Шифрование — [age](https://age-encryption.org). Ключ в двух местах:
+  на NUC `/opt/easy-breezy/backup/age.key` (root, 0600) и у владельца
+  `~/.config/easy-breezy/backup-age.key` (provision кладёт копию на
+  машину, с которой запускается). **Сохраните копию ключа ещё и в
+  менеджер паролей**: без ключа архивы не прочесть. Сам ключ в архив не
+  входит.
+- Хранение: последние 7 копий (`EB_BACKUP_KEEP`) в
+  `/opt/easy-breezy/backups/offsite/`, то же зеркало на VPS в
+  `/srv/eb-backup/` (rsync `--delete`). Копия ≈ 7 МБ.
+- Доступ NUC → VPS: пользователь `eb-backup`, ключ `/root/.ssh/eb-backup`
+  с forced command `rrsync -wo /srv/eb-backup` — только запись в свой
+  каталог, ни шелла, ни чтения. Скачивать копии с VPS — под админом VPS.
+- Всё ставит `make provision` (группа `backup_vps` в inventory,
+  см. `deploy/ansible/inventory.example.yml`).
+- Сбой (VPS недоступен, снапшот БД старше 30 ч, архив не расшифровался)
+  — юнит падает: `systemctl --failed`, `journalctl -t eb-backup`.
+
+Проверка и ручной запуск (на NUC):
+
+```bash
+sudo systemctl start easy-breezy-backup.service
+journalctl -t eb-backup -n 5
+systemctl list-timers easy-breezy-backup.timer
+```
+
+Восстановление на чистый хост:
+
+```bash
+# 1. скачать архив с VPS (под админом VPS) и расшифровать там, где есть ключ
+scp -P 1962 root@<VPS>:/srv/eb-backup/easy-breezy-<host>-<дата>.tar.gz.age .
+age -d -i ~/.config/easy-breezy/backup-age.key easy-breezy-*.tar.gz.age > restore.tar.gz
+
+# 2. make provision на новый хост (ключ age вернётся на NUC из копии владельца),
+#    затем на хосте — распаковать поверх (пути в архиве от корня):
+sudo systemctl stop easy-breezy bluetooth
+sudo tar -xzf restore.tar.gz -C /
+sudo systemctl start bluetooth
+
+# 3. БД из снапшота в архиве — как в разделе выше
+cd /opt/easy-breezy
+gunzip -c data/backups/easy_breezy-<дата>.db.gz > data/easy_breezy.db
+rm -f data/easy_breezy.db-wal data/easy_breezy.db-shm
+
+# 4. выкатить версию (make deploy VERSION=x.y.z) — сервис поднимется сам
+```
+
+Сопряжения BlueZ привязаны к MAC адаптера (`/var/lib/bluetooth/<MAC>/`):
+на другом железе каталог надо переименовать под новый адаптер
+(`bluetoothctl list`) до запуска bluetooth.
+
 ## Watchdog и самолечение BLE (NFR-4)
 
 - Все сопряжённые бризеры офлайн > 10 мин → сервис делает power-cycle

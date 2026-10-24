@@ -38,8 +38,23 @@ make deploy VERSION=x.y.z    # build-ui → buildx arm64 → save|ssh|load →
 ├── nginx/               # конфиг LAN-входа (профиль lan)
 ├── mosquitto/           # брокер датчиков (профиль mqtt): config/ + data/
 ├── tls/                 # копия боевого серта, 0700 (eb-cert-sync.sh)
+├── backup/age.key       # ключ шифрования ночного бэкапа, 0600 (копия у владельца)
+├── backup-offsite.env   # куда и сколько хранить (пишет provision)
+├── backups/offsite/     # последние зашифрованные архивы инсталляции
 └── data/                # БД, бэкапы, VAPID-ключи (bind-mount в контейнер)
 ```
+
+## Бэкап на VPS
+
+Раз в ночь вся инсталляция (БД, `.env` и конфиги, ключи пушей, TLS,
+сопряжения BlueZ) шифруется age и зеркалится на VPS — состав,
+восстановление и проверка в `docs/runbook.md`, «Ночной бэкап всей
+инсталляции на VPS». Включается группой `backup_vps` в inventory
+(пример в `inventory.example.yml`) и `make provision`: на VPS заводится
+пользователь `eb-backup`, ключу NUC разрешён только `rrsync -wo`. Ключ age
+создаётся на NUC при первом прогоне, копия ложится на машину владельца в
+`~/.config/easy-breezy/backup-age.key` — её стоит сохранить ещё и в
+менеджер паролей.
 
 ## Брокер датчиков (Mosquitto)
 

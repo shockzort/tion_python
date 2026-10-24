@@ -4,3 +4,13 @@ all:
     pi:
       ansible_host: 192.168.1.10
       ansible_user: pi
+  # Необязательно: приёмник ночного шифрованного бэкапа (README, «Бэкап на VPS»).
+  # ansible_host — ssh-алиас с root-доступом; eb_backup_addr/port — как до VPS
+  # достучаться с NUC.
+  children:
+    backup_vps:
+      hosts:
+        vps:
+          ansible_host: vps-root-alias
+          eb_backup_addr: 203.0.113.10
+          eb_backup_port: 22

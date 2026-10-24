@@ -1,0 +1,14 @@
+# Ночной шифрованный бэкап инсталляции на VPS (пара к easy-breezy-backup.timer).
+# Адрес VPS и ретенция — /opt/easy-breezy/backup-offsite.env (пишет provision).
+
+[Unit]
+Description=Easy Breezy — шифрованный бэкап инсталляции на VPS
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/opt/easy-breezy/backup-offsite.env
+ExecStart=/usr/local/bin/eb-backup-offsite.sh
+Nice=10
+IOSchedulingClass=idle

@@ -7,7 +7,7 @@
 # только когда файлы реально изменились (продление раз в ~60 дней).
 set -eu
 
-: "${EB_CERT_SSH_HOST:=root@195.133.20.205}"
+: "${EB_CERT_SSH_HOST:=root@2.27.29.101}"
 : "${EB_CERT_SSH_PORT:=1962}"
 : "${EB_CERT_SSH_KEY:=/root/.ssh/eb-cert}"
 : "${EB_TLS_DIR:=/opt/easy-breezy/tls}"

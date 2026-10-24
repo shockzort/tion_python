@@ -4,15 +4,17 @@
 # затем выкатить версию: make deploy VERSION=x.y.z.
 ---
 - name: Подготовка целевого сервера Easy Breezy
-  hosts: all
+  hosts: all:!backup_vps
   become: true
   vars:
     eb_root: /opt/easy-breezy
+    # копия ключа шифрования бэкапов у владельца (без неё архивы не прочесть)
+    eb_backup_local_key: "{{ lookup('env', 'HOME') }}/.config/easy-breezy/backup-age.key"
     eb_compose_profiles: tunnel,lan,mqtt # tunnel — frpc наружу, lan — nginx в LAN, mqtt — брокер датчиков
   tasks:
-    - name: Пакеты (curl — watchdog, bluez — BLE-стек, sqlite3 — бэкапы)
+    - name: Пакеты (curl — watchdog, bluez — BLE-стек, sqlite3/age/rsync — бэкапы)
       ansible.builtin.apt:
-        name: [curl, bluez, gzip, sqlite3]
+        name: [curl, bluez, gzip, sqlite3, age, rsync]
         state: present
         update_cache: true
 
@@ -139,6 +141,91 @@
         dest: /usr/local/bin/eb-watchdog.sh
         mode: "0755"
 
+    - name: Скрипт бэкапа на VPS
+      ansible.builtin.copy:
+        src: ../systemd/eb-backup-offsite.sh
+        dest: /usr/local/bin/eb-backup-offsite.sh
+        mode: "0755"
+
+    - name: Каталог ключа бэкапов (только root)
+      ansible.builtin.file:
+        path: "{{ eb_root }}/backup"
+        state: directory
+        mode: "0700"
+
+    # Ключ age живёт в двух местах: на NUC (шифрует) и у владельца (без него
+    # архив с VPS не расшифровать, если NUC умер). Какая сторона есть — та и
+    # источник; обе есть и различаются — стоп, ничего не перезаписываем.
+    - name: Ключ бэкапов на NUC
+      ansible.builtin.stat:
+        path: "{{ eb_root }}/backup/age.key"
+        get_checksum: true
+      register: backup_key_remote
+
+    - name: Ключ бэкапов у владельца
+      ansible.builtin.stat:
+        path: "{{ eb_backup_local_key }}"
+        get_checksum: true
+      register: backup_key_local
+      delegate_to: localhost
+      become: false
+
+    - name: Ключ бэкапов на NUC из копии владельца (переустановка NUC)
+      ansible.builtin.copy:
+        src: "{{ eb_backup_local_key }}"
+        dest: "{{ eb_root }}/backup/age.key"
+        mode: "0600"
+      when: not backup_key_remote.stat.exists and backup_key_local.stat.exists
+
+    - name: Новый ключ бэкапов
+      ansible.builtin.command: age-keygen -o {{ eb_root }}/backup/age.key
+      args:
+        creates: "{{ eb_root }}/backup/age.key"
+      when: not backup_key_remote.stat.exists and not backup_key_local.stat.exists
+
+    - name: Каталог копии ключа у владельца
+      ansible.builtin.file:
+        path: "{{ eb_backup_local_key | dirname }}"
+        state: directory
+        mode: "0700"
+      delegate_to: localhost
+      become: false
+      when: not backup_key_local.stat.exists
+
+    - name: Копия ключа бэкапов владельцу
+      ansible.builtin.fetch:
+        src: "{{ eb_root }}/backup/age.key"
+        dest: "{{ eb_backup_local_key }}"
+        flat: true
+      when: not backup_key_local.stat.exists
+
+    - name: Права копии ключа у владельца
+      ansible.builtin.file:
+        path: "{{ eb_backup_local_key }}"
+        mode: "0600"
+      delegate_to: localhost
+      become: false
+
+    - name: Ключи на NUC и у владельца совпадают
+      ansible.builtin.assert:
+        that: backup_key_remote.stat.checksum == backup_key_local.stat.checksum
+        fail_msg: >-
+          {{ eb_root }}/backup/age.key на NUC отличается от {{ eb_backup_local_key }}.
+          Разберитесь вручную, какой из них шифрует существующие архивы.
+      when: backup_key_remote.stat.exists and backup_key_local.stat.exists
+
+    - name: ssh-ключ доставки бэкапов (на VPS ему разрешён только rrsync)
+      ansible.builtin.command: >-
+        ssh-keygen -t ed25519 -N "" -C eb-backup@{{ inventory_hostname }}
+        -f /root/.ssh/eb-backup
+      args:
+        creates: /root/.ssh/eb-backup
+
+    - name: Публичный ssh-ключ доставки (для VPS)
+      ansible.builtin.slurp:
+        src: /root/.ssh/eb-backup.pub
+      register: backup_ssh_pub
+
     - name: Systemd-юниты
       ansible.builtin.copy:
         src: "../systemd/{{ item }}"
@@ -150,6 +237,8 @@
         - easy-breezy-watchdog.timer
         - easy-breezy-cert-sync.service
         - easy-breezy-cert-sync.timer
+        - easy-breezy-backup.service
+        - easy-breezy-backup.timer
 
     - name: Автозапуск сервиса (поднимет первый деплой)
       ansible.builtin.systemd:
@@ -190,3 +279,90 @@
       ansible.builtin.systemd:
         name: bluetooth.service
         state: restarted
+
+# Приёмник бэкапов: отдельный пользователь, ключ NUC с forced command
+# rrsync -wo — ни шелла, ни чтения, только запись в свой каталог.
+- name: Приёмник бэкапов на VPS
+  hosts: backup_vps
+  become: true
+  vars:
+    backup_dir: /srv/eb-backup
+  tasks:
+    - name: rsync (rrsync идёт в том же пакете)
+      ansible.builtin.apt:
+        name: rsync
+        state: present
+
+    - name: Пользователь eb-backup (пароль заблокирован; shell нужен для forced command)
+      ansible.builtin.user:
+        name: eb-backup
+        shell: /bin/sh
+        password: "!"
+        create_home: true
+
+    - name: Каталог бэкапов
+      ansible.builtin.file:
+        path: "{{ backup_dir }}"
+        state: directory
+        owner: eb-backup
+        group: eb-backup
+        mode: "0700"
+
+    - name: Каталог .ssh пользователя eb-backup
+      ansible.builtin.file:
+        path: /home/eb-backup/.ssh
+        state: directory
+        owner: eb-backup
+        group: eb-backup
+        mode: "0700"
+
+    - name: Ключи NUC в authorized_keys (только rrsync -wo)
+      ansible.builtin.copy:
+        content: |
+          {% for host in groups['all'] | difference(groups['backup_vps']) %}
+          {% if hostvars[host].backup_ssh_pub is defined %}
+          restrict,command="/usr/bin/rrsync -wo {{ backup_dir }}" {{ hostvars[host].backup_ssh_pub.content | b64decode | trim }}
+          {% endif %}
+          {% endfor %}
+        dest: /home/eb-backup/.ssh/authorized_keys
+        owner: eb-backup
+        group: eb-backup
+        mode: "0600"
+
+    - name: Host-ключ VPS (для known_hosts NUC)
+      ansible.builtin.slurp:
+        src: /etc/ssh/ssh_host_ed25519_key.pub
+      register: vps_host_key
+
+- name: Ночной бэкап на VPS
+  hosts: all:!backup_vps
+  become: true
+  vars:
+    eb_root: /opt/easy-breezy
+    vps: "{{ hostvars[groups['backup_vps'][0]] }}"
+    vps_addr: "[{{ vps.eb_backup_addr }}]:{{ vps.eb_backup_port }}"
+  tasks:
+    - name: Бэкап на VPS (если в inventory есть группа backup_vps)
+      when: "'backup_vps' in groups and groups['backup_vps'] | length > 0"
+      block:
+        - name: VPS в known_hosts root
+          ansible.builtin.known_hosts:
+            path: /root/.ssh/known_hosts
+            name: "{{ vps_addr }}"
+            key: "{{ vps_addr }} {{ (vps.vps_host_key.content | b64decode).split()[:2] | join(' ') }}"
+
+        - name: Настройки бэкапа
+          ansible.builtin.copy:
+            content: |
+              EB_BACKUP_SSH_HOST=eb-backup@{{ vps.eb_backup_addr }}
+              EB_BACKUP_SSH_PORT={{ vps.eb_backup_port }}
+              EB_BACKUP_KEEP={{ eb_backup_keep | default(7) }}
+            dest: "{{ eb_root }}/backup-offsite.env"
+            mode: "0644"
+
+        - name: Таймер ночного бэкапа
+          ansible.builtin.systemd:
+            daemon_reload: true
+            name: easy-breezy-backup.timer
+            enabled: true
+            state: started

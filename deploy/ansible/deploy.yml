@@ -4,7 +4,7 @@
 #   make deploy VERSION=x.y.z   (из корня; ui/dist собирает make)
 ---
 - name: Выкат на целевой сервер
-  hosts: all
+  hosts: all:!backup_vps
   become: true
   vars:
     eb_version: "{{ version | mandatory }}"
