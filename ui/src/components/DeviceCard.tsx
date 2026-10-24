@@ -206,7 +206,7 @@ function FanSlider({
         onPointerUp={commit}
         onKeyUp={commit}
         onBlur={commit}
-        className="w-full accent-sky-500 disabled:opacity-50"
+        className="w-full accent-accent disabled:opacity-50"
       />
       <span className="w-4 shrink-0 text-center font-semibold text-sky-400">
         {dragValue}

@@ -115,7 +115,7 @@ function TabLink({ to, label, icon }: { to: string; label: string; icon: string 
       end={to === '/'}
       className={({ isActive }) =>
         `flex min-h-14 flex-col items-center justify-center gap-1 text-[11px] font-semibold transition-colors ${
-          isActive ? 'text-sky-400' : 'text-slate-400 hover:text-slate-200'
+          isActive ? 'text-accent' : 'text-slate-400 hover:text-slate-200'
         }`
       }
     >
