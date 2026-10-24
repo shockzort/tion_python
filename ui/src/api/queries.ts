@@ -5,7 +5,6 @@ import {
   useMutation,
   useQuery,
   useQueryClient,
-  type QueryClient,
 } from '@tanstack/react-query'
 
 import { api } from './client'
@@ -531,30 +530,6 @@ export function useChangePassword() {
   })
 }
 
-// --- интенты ---------------------------------------------------------------------
-
-export type IntentReply = {
-  reply: string
-  executed: boolean
-  intent: string | null
-}
-
-export function useExecuteIntent() {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: (text: string) =>
-      api<IntentReply>('/api/intents/execute', {
-        method: 'POST',
-        json: { text },
-      }),
-    onSuccess: (result) => {
-      if (result.executed) {
-        void queryClient.invalidateQueries({ queryKey: keys.devices })
-      }
-    },
-  })
-}
-
 // --- мастер сопряжения -------------------------------------------------------
 
 export function useScanAir() {
@@ -574,20 +549,4 @@ export function usePairDevice() {
       api<Device>('/api/pairing/pair', { method: 'POST', json: body }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.devices }),
   })
-}
-
-/** Общий помощник «Все выкл» с дашборда. */
-export async function powerOffAll(queryClient: QueryClient, devices: Device[]) {
-  await Promise.allSettled(
-    devices
-      .filter((device) => device.connection === 'online')
-      .map((device) =>
-        api<CommandResult>(`/api/devices/${device.uuid}/command`, {
-          method: 'POST',
-          json: { power: false },
-          headers: { 'Idempotency-Key': `ui:${crypto.randomUUID()}` },
-        }),
-      ),
-  )
-  await queryClient.invalidateQueries({ queryKey: keys.devices })
 }

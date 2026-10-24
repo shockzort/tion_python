@@ -1,9 +1,6 @@
-import { useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import {
-  powerOffAll,
   useDevices,
   useReleaseHold,
   useRooms,
@@ -13,7 +10,6 @@ import {
   useSensors,
 } from '../api/queries'
 import DeviceCard from '../components/DeviceCard'
-import IntentBar from '../components/IntentBar'
 import SensorCard from '../components/SensorCard'
 import { Button, Spinner } from '../components/ui'
 
@@ -25,8 +21,6 @@ export default function Dashboard() {
   const runScenario = useRunScenario()
   const sendCommand = useSendCommand()
   const releaseHold = useReleaseHold()
-  const queryClient = useQueryClient()
-  const [poweringOff, setPoweringOff] = useState(false)
 
   if (devices.isPending) {
     return <Spinner label="Загружаем устройства…" />
@@ -51,15 +45,6 @@ export default function Dashboard() {
 
   const online = devices.data.filter((d) => d.connection === 'online').length
 
-  const allOff = async () => {
-    setPoweringOff(true)
-    try {
-      await powerOffAll(queryClient, devices.data)
-    } finally {
-      setPoweringOff(false)
-    }
-  }
-
   // комнаты — главный разрез: датчик воздуха и бризеры одной комнаты рядом
   const groups = [
     ...(rooms.data ?? []).map((room) => ({ key: String(room.id), title: room.name, roomId: room.id as number | null })),
@@ -74,17 +59,10 @@ export default function Dashboard() {
 
   return (
     <div className="flex flex-col gap-4">
-      <IntentBar />
-
-      <div className="flex items-center justify-between gap-2">
-        <span className="inline-flex items-center gap-2 text-sm text-slate-400">
-          <span className={`size-2 rounded-full ${online === devices.data.length ? 'bg-emerald-400' : 'bg-amber-400'}`} />
-          На связи {online} из {devices.data.length}
-        </span>
-        <Button variant="ghost" onClick={allOff} disabled={poweringOff}>
-          {poweringOff ? 'Выключаем…' : 'Все выкл'}
-        </Button>
-      </div>
+      <span className="inline-flex items-center gap-2 px-1 text-sm text-slate-400">
+        <span className={`size-2 rounded-full ${online === devices.data.length ? 'bg-emerald-400' : 'bg-amber-400'}`} />
+        На связи {online} из {devices.data.length}
+      </span>
 
       {scenarios.data !== undefined && scenarios.data.length > 0 && (
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">

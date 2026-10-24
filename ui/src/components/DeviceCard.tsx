@@ -317,7 +317,7 @@ function ModeButton({
       onClick={onClick}
       className={`rounded-lg py-1.5 transition-colors ${
         active
-          ? 'bg-sky-400 text-slate-950 font-semibold'
+          ? 'bg-accent text-slate-950 font-semibold'
           : 'text-slate-300 hover:bg-slate-700 disabled:opacity-50'
       }`}
     >

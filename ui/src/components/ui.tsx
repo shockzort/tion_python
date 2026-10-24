@@ -6,7 +6,7 @@ type ButtonVariant = 'primary' | 'ghost' | 'danger'
 
 const buttonStyles: Record<ButtonVariant, string> = {
   primary:
-    'bg-sky-400 text-slate-950 hover:bg-sky-300 disabled:bg-slate-700 disabled:text-slate-400',
+    'bg-accent text-slate-950 hover:bg-accent-hover disabled:bg-slate-700 disabled:text-slate-400',
   ghost:
     'border border-slate-800 bg-slate-950/60 text-slate-200 hover:border-slate-700 hover:bg-slate-800 disabled:text-slate-500',
   danger:
@@ -114,7 +114,7 @@ export function Toggle({
         disabled={disabled}
         onClick={() => onChange(!checked)}
         className={`relative h-7 w-12 shrink-0 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
-          checked ? 'bg-sky-400' : 'bg-slate-700'
+          checked ? 'bg-accent' : 'bg-slate-700'
         }`}
       >
         <span

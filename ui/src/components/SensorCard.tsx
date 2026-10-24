@@ -47,7 +47,7 @@ export default function SensorCard({ sensor, roomName }: { sensor: Sensor; roomN
             return (
               <div key={metric} title={age(metric)} className="flex flex-col rounded-xl bg-slate-950/70 px-3 py-2">
                 <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">{METRIC_INFO[metric].short}</span>
-                <span className={`text-2xl font-extrabold tabular-nums ${tone}`} data-metric={metric}>
+                <span className={`text-[1.35rem] font-extrabold tabular-nums ${tone}`} data-metric={metric}>
                   {formatValue(metric, value)}
                 </span>
                 <span className="text-[11px] text-slate-400">{METRIC_INFO[metric].unit}</span>

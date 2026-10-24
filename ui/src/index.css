@@ -28,6 +28,11 @@
   --color-sky-800: #134e4a;
   --color-sky-900: #123a37;
 
+  /* Заливка активных элементов (кнопки, выбранный сегмент, переключатель):
+     приглушённый teal — яркий sky-400 оставлен для текста и обводок. */
+  --color-accent: #3d9a8f;
+  --color-accent-hover: #4aa89c;
+
   --radius-xl: 0.875rem;
   --radius-2xl: 1.375rem;
 }
@@ -42,6 +47,12 @@ body {
   font-feature-settings: 'tnum' 1;
   -webkit-font-smoothing: antialiased;
   -webkit-tap-highlight-color: transparent;
+}
+
+/* Recharts делает surface/обёртку фокусируемыми — клик рисовал белую рамку. */
+.recharts-wrapper:focus,
+.recharts-wrapper *:focus {
+  outline: none;
 }
 
 select,
