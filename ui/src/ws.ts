@@ -3,7 +3,7 @@
 import type { QueryClient } from '@tanstack/react-query'
 
 import { keys } from './api/queries'
-import type { Connection, Device, DeviceState, WsEvent } from './api/types'
+import type { Appliance, Connection, Device, DeviceState, WsEvent } from './api/types'
 
 /** Прогресс мастера сопряжения — отдельная шина для PairWizard. */
 export const pairingProgress = new EventTarget()
@@ -23,6 +23,7 @@ export function startEventBridge(queryClient: QueryClient): () => void {
       attempt = 0
       // догоняем пропущенное за время реконнекта
       void queryClient.invalidateQueries({ queryKey: keys.devices })
+      void queryClient.invalidateQueries({ queryKey: keys.appliances })
     }
     socket.onmessage = (message: MessageEvent<string>) => {
       try {
@@ -88,6 +89,13 @@ function handleEvent(queryClient: QueryClient, event: WsEvent) {
       void queryClient.invalidateQueries({ queryKey: keys.schedules })
       void queryClient.invalidateQueries({ queryKey: keys.triggers })
       break
+    case 'appliance.state_changed': {
+      const snapshot = event.data as unknown as Appliance
+      queryClient.setQueryData<Appliance[]>(keys.appliances, (items) =>
+        items?.map((item) => (item.id === snapshot.id ? snapshot : item)),
+      )
+      break
+    }
     case 'sensor.updated':
       void queryClient.invalidateQueries({ queryKey: keys.sensors })
       break

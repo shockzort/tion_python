@@ -16,6 +16,7 @@ from easy_breezy.core.sensors import (
     KIND_MQTT,
     KIND_QINGPING_BLE,
     KIND_QINGPING_MQTT,
+    KIND_XIAOMI_MIIO,
 )
 from easy_breezy.integrations.qingping import mqtt as qingping_mqtt
 from easy_breezy.integrations.qingping import parser as qingping_ble
@@ -42,7 +43,7 @@ class SensorProvider:
     kind: str
     title: str
     transport: str
-    """cloud | mqtt | ble — для иконки и подсказок."""
+    """cloud | mqtt | ble | wifi — для иконки и подсказок."""
     description: str
     metrics: tuple[str, ...]
     """Что датчик этого типа умеет измерять (capabilities)."""
@@ -116,6 +117,18 @@ def build_providers(*, mqtt_enabled: bool, ble_enabled: bool) -> list[SensorProv
             normalize=_mqtt_topic,
             available=mqtt_enabled,
             unavailable_reason=no_broker,
+        ),
+        SensorProvider(
+            kind=KIND_XIAOMI_MIIO,
+            title="Xiaomi · Wi-Fi (miIO)",
+            transport="wifi",
+            description=(
+                "Встроенные датчики приборов Xiaomi из EB_XIAOMI_DEVICES появляются "
+                "сами при первом опросе (docs/xiaomi.md)."
+            ),
+            metrics=("humidity", "temperature", "pm25"),
+            manual=False,
+            discoverable=False,
         ),
         SensorProvider(
             kind=KIND_MAGICAIR,

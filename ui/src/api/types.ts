@@ -65,9 +65,9 @@ export type FoundBreezer = {
 export type TriggerToggle = { enabled: boolean }
 
 export type ScenarioAction = {
-  target_type: 'device' | 'group' | 'trigger'
+  target_type: 'device' | 'group' | 'trigger' | 'appliance'
   target_id: string | number
-  delta: CommandBody | TriggerToggle
+  delta: CommandBody | TriggerToggle | ApplianceCommand
 }
 
 export type Scenario = { id: number; name: string; actions: ScenarioAction[] }
@@ -106,7 +106,7 @@ export type Sensor = {
 export type SensorProvider = {
   kind: string
   title: string
-  transport: 'cloud' | 'mqtt' | 'ble'
+  transport: 'cloud' | 'mqtt' | 'ble' | 'wifi'
   description: string
   metrics: SensorMetric[]
   manual: boolean
@@ -178,3 +178,58 @@ export type WsEvent = {
   topic: string
   data: Record<string, unknown>
 }
+
+// --- приборы Xiaomi (miIO) ---------------------------------------------------
+
+export type ApplianceFunction = 'humidify' | 'purify'
+export type HumidifierMode = 'constant' | 'sleep' | 'favorite' | 'fan'
+export type PurifierMode = 'auto' | 'sleep' | 'favorite' | 'fan'
+
+export type ApplianceState = {
+  power: boolean
+  function: ApplianceFunction
+  humidifier_mode: HumidifierMode
+  purifier_mode: PurifierMode
+  target_humidity: number
+  humidifier_fan_level: number
+  purifier_fan_level: number
+  water_level: number
+  water_state: 'no_tank' | 'low' | 'normal' | 'full' | 'unknown'
+  fault: number
+  humidity: number
+  temperature: number
+  pm25: number
+  pm1: number
+  air_quality: number
+  purifier_filter_life: number
+  humidifier_filter_life: number
+  screen: boolean
+  sound: boolean
+  child_lock: boolean
+}
+
+export type Appliance = {
+  id: string
+  name: string
+  model: string
+  online: boolean
+  state: ApplianceState | null
+  state_at: number | null
+  error: string | null
+}
+
+export type ApplianceCommand = Partial<
+  Pick<
+    ApplianceState,
+    | 'power'
+    | 'function'
+    | 'humidifier_mode'
+    | 'purifier_mode'
+    | 'target_humidity'
+    | 'humidifier_fan_level'
+    | 'purifier_fan_level'
+    | 'screen'
+    | 'sound'
+    | 'child_lock'
+  >
+>

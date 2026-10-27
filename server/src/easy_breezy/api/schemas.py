@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from easy_breezy.ble.protocol.s4 import Mode
 from easy_breezy.core.bus import CommandOutcome
 from easy_breezy.core.model import StateDelta
+from easy_breezy.integrations.xiaomi.ha2 import Ha2Delta
 from easy_breezy.storage.models import CommandRecord, Device
 
 MAC_PATTERN = r"^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$"
@@ -143,3 +144,29 @@ class CommandView(BaseModel):
             started_at=record.started_at,
             finished_at=record.finished_at,
         )
+
+
+class ApplianceCommand(BaseModel):
+    """Дельта прибора; все поля опциональны, но хотя бы одно нужно."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    power: bool | None = None
+    function: Literal["humidify", "purify"] | None = None
+    humidifier_mode: Literal["constant", "sleep", "favorite", "fan"] | None = None
+    purifier_mode: Literal["auto", "sleep", "favorite", "fan"] | None = None
+    target_humidity: int | None = Field(default=None, ge=40, le=70)
+    humidifier_fan_level: int | None = Field(default=None, ge=1, le=3)
+    purifier_fan_level: int | None = Field(default=None, ge=1, le=3)
+    screen: bool | None = None
+    sound: bool | None = None
+    child_lock: bool | None = None
+
+    @model_validator(mode="after")
+    def _require_any_field(self) -> ApplianceCommand:
+        if self.to_delta().is_empty():
+            raise ValueError("задайте хотя бы одно поле команды")
+        return self
+
+    def to_delta(self) -> Ha2Delta:
+        return Ha2Delta.from_payload(self.model_dump(exclude_none=True))

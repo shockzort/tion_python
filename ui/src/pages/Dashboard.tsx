@@ -1,6 +1,8 @@
 import { Link } from 'react-router-dom'
 
 import {
+  useApplianceCommand,
+  useAppliances,
   useDevices,
   useReleaseHold,
   useRooms,
@@ -9,6 +11,7 @@ import {
   useSendCommand,
   useSensors,
 } from '../api/queries'
+import ApplianceCard from '../components/ApplianceCard'
 import DeviceCard from '../components/DeviceCard'
 import SensorCard from '../components/SensorCard'
 import { Button, Spinner } from '../components/ui'
@@ -21,6 +24,8 @@ export default function Dashboard() {
   const runScenario = useRunScenario()
   const sendCommand = useSendCommand()
   const releaseHold = useReleaseHold()
+  const appliances = useAppliances()
+  const applianceCommand = useApplianceCommand()
 
   if (devices.isPending) {
     return <Spinner label="Загружаем устройства…" />
@@ -28,7 +33,8 @@ export default function Dashboard() {
   if (devices.isError) {
     return <p className="text-rose-400">Не удалось загрузить устройства.</p>
   }
-  if (devices.data.length === 0) {
+  const applianceList = appliances.data ?? []
+  if (devices.data.length === 0 && applianceList.length === 0) {
     return (
       <div className="mt-16 text-center text-slate-400">
         <p>Пока нет ни одного бризера.</p>
@@ -43,7 +49,13 @@ export default function Dashboard() {
     )
   }
 
-  const online = devices.data.filter((d) => d.connection === 'online').length
+  const online =
+    devices.data.filter((d) => d.connection === 'online').length +
+    applianceList.filter((a) => a.online).length
+  const total = devices.data.length + applianceList.length
+  // комната прибора — комната его встроенного датчика (xiaomi_miio:<did>)
+  const applianceRoom = (id: string) =>
+    (sensors.data ?? []).find((sensor) => sensor.source_key === `xiaomi_miio:${id}`)?.room_id ?? null
 
   // комнаты — главный разрез: датчик воздуха и бризеры одной комнаты рядом
   const groups = [
@@ -54,14 +66,17 @@ export default function Dashboard() {
       ...group,
       sensors: (sensors.data ?? []).filter((sensor) => sensor.room_id === group.roomId),
       devices: devices.data.filter((device) => device.room_id === group.roomId),
+      appliances: applianceList.filter((appliance) => applianceRoom(appliance.id) === group.roomId),
     }))
-    .filter((group) => group.sensors.length > 0 || group.devices.length > 0)
+    .filter(
+      (group) => group.sensors.length > 0 || group.devices.length > 0 || group.appliances.length > 0,
+    )
 
   return (
     <div className="flex flex-col gap-4">
       <span className="inline-flex items-center gap-2 px-1 text-sm text-slate-400">
-        <span className={`size-2 rounded-full ${online === devices.data.length ? 'bg-emerald-400' : 'bg-amber-400'}`} />
-        На связи {online} из {devices.data.length}
+        <span className={`size-2 rounded-full ${online === total ? 'bg-emerald-400' : 'bg-amber-400'}`} />
+        На связи {online} из {total}
       </span>
 
       {scenarios.data !== undefined && scenarios.data.length > 0 && (
@@ -100,6 +115,17 @@ export default function Dashboard() {
                   device={device}
                   onCommand={(body) => sendCommand.mutate({ uuid: device.uuid, body })}
                   onReleaseHold={() => releaseHold.mutate(device.uuid)}
+                />
+              ))}
+            </div>
+          )}
+          {group.appliances.length > 0 && (
+            <div className="grid gap-2.5 sm:grid-cols-2">
+              {group.appliances.map((appliance) => (
+                <ApplianceCard
+                  key={appliance.id}
+                  appliance={appliance}
+                  onCommand={(body) => applianceCommand.mutate({ id: appliance.id, body })}
                 />
               ))}
             </div>

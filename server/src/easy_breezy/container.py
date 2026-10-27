@@ -49,6 +49,7 @@ from easy_breezy.integrations.mqtt.client import MqttIngest
 from easy_breezy.integrations.providers import SensorProvider, build_providers
 from easy_breezy.integrations.qingping.client import QingpingListener
 from easy_breezy.integrations.qingping.mqtt import QingpingMqttListener
+from easy_breezy.integrations.xiaomi.service import ApplianceService
 from easy_breezy.integrations.yandex.callbacks import YandexNotifier
 from easy_breezy.storage import Database
 from easy_breezy.storage.backup import BackupService
@@ -82,6 +83,7 @@ class AppContainer:
     backup: BackupService
     watchdog: BleWatchdog
     push: PushService
+    appliances: ApplianceService
     sensor_providers: list[SensorProvider] = field(default_factory=list)
     """Источники показаний для мастера добавления датчика."""
     ws_connections: set[Any] = field(default_factory=set)
@@ -111,6 +113,7 @@ class AppContainer:
         await self.mqtt.start()
         await self.qingping.start()
         await self.qingping_mqtt.start()
+        await self.appliances.start()
         await self.push.start()
         await self.backup.start()
         await self.watchdog.start()
@@ -123,6 +126,7 @@ class AppContainer:
         await self.watchdog.stop()
         await self.backup.stop()
         await self.push.stop()
+        await self.appliances.stop()
         await self.qingping_mqtt.stop()
         await self.qingping.stop()
         await self.mqtt.stop()
@@ -172,11 +176,12 @@ def build_container(settings: Settings) -> AppContainer:
         skill_id=settings.yandex_skill_id,
         callback_token=settings.yandex_callback_token,
     )
-    scenarios = ScenarioService(db, bus, events)
+    sensors = SensorIngest(db, events)
+    appliances = ApplianceService(sensors, events, settings.xiaomi_devices)
+    scenarios = ScenarioService(db, bus, events, appliances=appliances)
     clock = SystemClock()
     tz = resolve_timezone(settings.timezone)
     scheduler = SchedulerService(db, scenarios, events, clock, tz=tz)
-    sensors = SensorIngest(db, events)
     triggers = TriggerEngine(
         db, scenarios, events, clock, cache=cache, holds=holds, tz=tz
     )
@@ -236,6 +241,7 @@ def build_container(settings: Settings) -> AppContainer:
         backup=backup,
         watchdog=watchdog,
         push=push,
+        appliances=appliances,
     )
 
 

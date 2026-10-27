@@ -12,10 +12,16 @@
 свой maintain-триггер, дневной — свой). Рекурсия невозможна: включение
 лишь взводит оценку будущих измерений датчика, синхронно ничего не
 запускает. Toggles применяются ДО постановки device-команд.
+
+Четвёртый вид — прибор Xiaomi (``target_type="appliance"``, дельта
+``Ha2Delta``): команда уходит сервису приборов фоновой задачей — у
+приборов нет журнала команд и hold-политики, а ожидание сети не должно
+тормозить планировщик и триггеры. Итог — в логе и WS-событии состояния.
 """
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -25,6 +31,8 @@ from easy_breezy.automation.maintain import KIND_MAINTAIN, disable_conflicting_m
 from easy_breezy.core.bus import CommandBus, CommandError, CommandTicket
 from easy_breezy.core.events import TOPIC_AUTOMATION_CHANGED, EventBus
 from easy_breezy.core.model import DeltaError, StateDelta
+from easy_breezy.integrations.xiaomi.ha2 import ApplianceDeltaError, Ha2Delta
+from easy_breezy.integrations.xiaomi.service import ApplianceError, ApplianceService
 from easy_breezy.storage import Database
 from easy_breezy.storage.models import CommandSource
 from easy_breezy.storage.repos import GroupRepo, ScenarioRepo, TriggerRepo
@@ -34,6 +42,7 @@ log = structlog.get_logger(__name__)
 TARGET_DEVICE = "device"
 TARGET_GROUP = "group"
 TARGET_TRIGGER = "trigger"
+TARGET_APPLIANCE = "appliance"
 
 
 class ScenarioError(Exception):
@@ -59,13 +68,23 @@ class _ResolvedActions:
 
     deltas: dict[str, StateDelta] = field(default_factory=dict)
     toggles: list[tuple[int, bool]] = field(default_factory=list)
+    appliances: dict[str, Ha2Delta] = field(default_factory=dict)
 
 
 class ScenarioService:
-    def __init__(self, db: Database, bus: CommandBus, events: EventBus) -> None:
+    def __init__(
+        self,
+        db: Database,
+        bus: CommandBus,
+        events: EventBus,
+        *,
+        appliances: ApplianceService | None = None,
+    ) -> None:
         self._db = db
         self._bus = bus
         self._events = events
+        self._appliances = appliances
+        self._appliance_tasks: set[asyncio.Task[None]] = set()
 
     async def run(
         self,
@@ -105,6 +124,8 @@ class ScenarioService:
         resolved = await self._resolve(actions)
         if resolved.toggles:
             await self._apply_trigger_toggles(resolved.toggles)
+        for appliance_id, appliance_delta in resolved.appliances.items():
+            self._spawn_appliance(appliance_id, appliance_delta, source)
         submissions: list[ActionSubmission] = []
         for device_uuid, delta in resolved.deltas.items():
             try:
@@ -129,6 +150,7 @@ class ScenarioService:
     async def _resolve(self, actions: list[Any]) -> _ResolvedActions:
         """Раскладывает действия в per-device дельты (мерж по порядку) и toggles."""
         merged: dict[str, dict[str, Any]] = {}
+        appliance_merged: dict[str, dict[str, Any]] = {}
         toggles: list[tuple[int, bool]] = []
         async with self._db.session() as session:
             groups = GroupRepo(session)
@@ -149,6 +171,9 @@ class ScenarioService:
                         )
                     toggles.append((int(target_id), enabled))
                     continue
+                if target_type == TARGET_APPLIANCE:
+                    appliance_merged.setdefault(str(target_id), {}).update(payload)
+                    continue
                 if target_type == TARGET_DEVICE:
                     device_uuids = [str(target_id)]
                 elif target_type == TARGET_GROUP:
@@ -168,9 +193,39 @@ class ScenarioService:
                 device_uuid: StateDelta.from_payload(payload)
                 for device_uuid, payload in merged.items()
             }
-        except DeltaError as exc:
+            appliances = {
+                appliance_id: Ha2Delta.from_payload(payload)
+                for appliance_id, payload in appliance_merged.items()
+            }
+        except (DeltaError, ApplianceDeltaError) as exc:
             raise ScenarioError(str(exc)) from exc
-        return _ResolvedActions(deltas=deltas, toggles=toggles)
+        return _ResolvedActions(deltas=deltas, toggles=toggles, appliances=appliances)
+
+    def _spawn_appliance(
+        self, appliance_id: str, delta: Ha2Delta, source: CommandSource
+    ) -> None:
+        if self._appliances is None:
+            log.warning("scenario_appliance_unavailable", appliance_id=appliance_id)
+            return
+        task = asyncio.create_task(self._run_appliance(appliance_id, delta, source))
+        self._appliance_tasks.add(task)
+        task.add_done_callback(self._appliance_tasks.discard)
+
+    async def _run_appliance(
+        self, appliance_id: str, delta: Ha2Delta, source: CommandSource
+    ) -> None:
+        assert self._appliances is not None
+        try:
+            await self._appliances.command(appliance_id, delta, source=source.value)
+        except ApplianceError as exc:
+            log.warning(
+                "scenario_appliance_failed", appliance_id=appliance_id, error=str(exc)
+            )
+
+    async def drain(self) -> None:
+        """Дожидается фоновых команд приборам (тесты, останов)."""
+        if self._appliance_tasks:
+            await asyncio.gather(*self._appliance_tasks, return_exceptions=True)
 
     async def _apply_trigger_toggles(self, toggles: list[tuple[int, bool]]) -> None:
         """Включает/выключает триггеры; защёлка сбрасывается без exit-действий.

@@ -1,0 +1,17 @@
+{
+  "_comment": "miIO, xiaomi.humidifier.ha2 (fw 1.0.9), снято 2026-10-27. hello — байты устройства как есть. Кадры с телом: тело (plain) — настоящее, но зашифровано ТЕСТОВЫМ токеном (настоящий — секрет, в git не кладётся) эталонной реализацией pycryptodome; повторное шифрование настоящим токеном совпало с эфиром байт-в-байт.",
+  "token": "00112233445566778899aabbccddeeff",
+  "did": 2232120756,
+  "hello_request": "21310020ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+  "hello_response": "2131002000000000850b75b400000600ffffffffffffffffffffffffffffffff",
+  "request": {
+    "stamp": 1537,
+    "plain": "{\"id\":1001,\"method\":\"get_properties\",\"params\":[{\"did\":\"2-1\",\"siid\":2,\"piid\":1},{\"did\":\"3-1\",\"siid\":3,\"piid\":1},{\"did\":\"3-7\",\"siid\":3,\"piid\":7}]}",
+    "frame": "213100c000000000850b75b40000060106d176b154c8f3fbd37ca570788b3607122c8c5c6a234968c6cfd9749a3502c45acfb741476bcac9fb434579aae38ff3cd1bf778911ee6c8974465602b7b3cdc1dd8b00746150f09f7cd1b961831abb93e1adf9c98439f0a7d35f638b4face12f26343da5ca1bd9c8e04547ebdc726b5369bf85c749da17d9ff8bdd8b4f83c143fa5d82cd53bcd6593e1a543231815261b6583fef21123003d39ebb782b8a02e3fb4960037df54c7cd0bdfe467fd29dc"
+  },
+  "response": {
+    "stamp": 1536,
+    "plain": "{\"id\":1001,\"result\":[{\"did\":\"2-1\",\"siid\":2,\"piid\":1,\"code\":0,\"value\":true},{\"did\":\"3-1\",\"siid\":3,\"piid\":1,\"code\":0,\"value\":55},{\"did\":\"3-7\",\"siid\":3,\"piid\":7,\"code\":0,\"value\":24.000000}],\"exe_time\":143}",
+    "frame": "213100f000000000850b75b400000600b5053ab3892890d679cbbf0817a99e81bbd89a366ad88820024fa07850c344e25ca1dc7bb16b55a26977029986d23ac6ae1776a81e0b1c18fa9b08008ca0633541df0bf57c1a86267785587eb473cf4b105de676f0734c80bbf84c60a757d727915ed70d7f5a33ad8d3056077d5159a615875a7f7174449560c9e978a7f4bea1abc9e71fe8d0f0925c07e59f510fec89aa14006c04fc6cadbee1a7a4ee3a5e09659746423a874a8e361b1dd038ae535b41efd0893e22cd0d01c85ed7f8d61f8ab2f28b56a39f5d04ca1006b783ab03504fa8261b0ef7b64e7504e442a1b23a04"
+  }
+}

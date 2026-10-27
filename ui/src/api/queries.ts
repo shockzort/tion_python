@@ -9,6 +9,8 @@ import {
 
 import { api } from './client'
 import type {
+  Appliance,
+  ApplianceCommand,
   AuthStatus,
   CommandBody,
   CommandResult,
@@ -35,6 +37,7 @@ export const keys = {
   me: ['me'] as const,
   authStatus: ['auth-status'] as const,
   devices: ['devices'] as const,
+  appliances: ['appliances'] as const,
   rooms: ['rooms'] as const,
   groups: ['groups'] as const,
   scenarios: ['scenarios'] as const,
@@ -92,6 +95,47 @@ export function useLogout() {
   return useMutation({
     mutationFn: () => api<undefined>('/api/auth/logout', { method: 'POST' }),
     onSettled: () => queryClient.resetQueries({ queryKey: keys.me }),
+  })
+}
+
+// --- приборы Xiaomi ----------------------------------------------------------
+
+export function useAppliances() {
+  return useQuery({
+    queryKey: keys.appliances,
+    queryFn: () => api<Appliance[]>('/api/appliances'),
+    staleTime: 30_000, // WS-мост держит кэш свежим
+  })
+}
+
+/** Команда прибору: optimistic-патч, ответ — подтверждённое прибором состояние. */
+export function useApplianceCommand() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: ApplianceCommand }) =>
+      api<Appliance>(`/api/appliances/${id}/command`, { method: 'POST', json: body }),
+    onMutate: async ({ id, body }) => {
+      await queryClient.cancelQueries({ queryKey: keys.appliances })
+      const previous = queryClient.getQueryData<Appliance[]>(keys.appliances)
+      queryClient.setQueryData<Appliance[]>(keys.appliances, (items) =>
+        items?.map((item) =>
+          item.id === id && item.state !== null
+            ? { ...item, state: { ...item.state, ...body } }
+            : item,
+        ),
+      )
+      return { previous }
+    },
+    onError: (_error, _vars, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(keys.appliances, context.previous)
+      }
+    },
+    onSuccess: (result) => {
+      queryClient.setQueryData<Appliance[]>(keys.appliances, (items) =>
+        items?.map((item) => (item.id === result.id ? result : item)),
+      )
+    },
   })
 }
 

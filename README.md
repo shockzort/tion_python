@@ -64,6 +64,7 @@ make apk      # Android APK → mobile/easy-breezy-<версия>.apk
 | **Qingping Air Monitor Lite (CGDN1) · Wi-Fi** — рекомендуемый | датчик шлёт данные на брокер сервиса раз в минуту | разовая настройка на портале Qingping — ниже |
 | Qingping Air Monitor Lite · Bluetooth | пассивный приём BLE-рекламы | датчик в радиусе Bluetooth сервера |
 | MQTT-датчик | JSON или числа в свой топик | брокер сервиса (`EB_MQTT_URL`) |
+| Прибор Xiaomi (увлажнитель-очиститель 3 Pro) · Wi-Fi | встроенные датчики прибора, появляются сами | `EB_XIAOMI_DEVICES` в `.env` — [docs/xiaomi.md](docs/xiaomi.md) |
 
 ### Qingping CGDN1 по Wi-Fi (MQTT)
 

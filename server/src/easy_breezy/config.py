@@ -5,8 +5,27 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Annotated
 
-from pydantic import Field
+from pydantic import BaseModel, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class XiaomiDeviceConfig(BaseModel):
+    """Прибор Xiaomi: адрес в LAN и токен miIO (секрет — только в .env)."""
+
+    did: int = Field(gt=0)
+    """Идентификатор устройства в облаке Mi Home (он же id прибора в API)."""
+    host: str = Field(min_length=1)
+    token: SecretStr
+    name: str = Field(min_length=1, max_length=100)
+    model: str = "xiaomi.humidifier.ha2"
+
+    @field_validator("token")
+    @classmethod
+    def _check_token(cls, value: SecretStr) -> SecretStr:
+        raw = value.get_secret_value()
+        if len(raw) != 32 or any(char not in "0123456789abcdefABCDEF" for char in raw):
+            raise ValueError("токен miIO — 32 hex-символа")
+        return value
 
 
 class Settings(BaseSettings):
@@ -61,6 +80,8 @@ class Settings(BaseSettings):
     """Учётка приложения Tion MagicAir (облачный опрос CO₂-датчиков)."""
     mqtt_url: str | None = None
     """Брокер сторонних датчиков: mqtt://[user:pass@]host[:1883]."""
+    xiaomi_devices: list[XiaomiDeviceConfig] = Field(default_factory=list)
+    """Приборы Xiaomi по локальному miIO (JSON-список); пусто — интеграция выкл."""
     push_contact: str = "https://easy-breezy.duckdns.org"
     """VAPID sub-claim (контакт для пуш-сервисов): https-URL или mailto:."""
     command_wait_seconds: float = 5.0

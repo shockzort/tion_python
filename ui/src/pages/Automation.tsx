@@ -2,6 +2,7 @@ import { useState } from 'react'
 
 import { ApiError } from '../api/client'
 import {
+  useAppliances,
   useDeleteScenario,
   useDeleteSchedule,
   useDeleteTrigger,
@@ -21,6 +22,7 @@ import {
   type TriggerBody,
 } from '../api/queries'
 import type {
+  ApplianceCommand,
   CommandBody,
   Device,
   Group,
@@ -35,6 +37,7 @@ import type {
   TriggerToggle,
 } from '../api/types'
 import { Badge, Button, Card, Spinner, Toggle } from '../components/ui'
+import { HUMIDIFIER_MODE_LABELS, PURIFIER_MODE_LABELS } from '../lib/appliance'
 import { cronFromPreset, DAY_LABELS, describeCron, presetFromCron } from '../lib/cron'
 import { AIR_METRICS, metricOption } from '../lib/metrics'
 
@@ -195,7 +198,30 @@ type DeltaDraft = {
   light: '' | 'on' | 'off'
 }
 
-type ActionDraft = { target: string; delta: DeltaDraft; toggle: '' | 'on' | 'off' }
+/** Черновик дельты прибора Xiaomi: '' — поле не менять. */
+type ApplianceDraft = {
+  power: '' | 'on' | 'off'
+  function: '' | 'humidify' | 'purify'
+  humidifier_mode: string
+  target_humidity: string
+  purifier_mode: string
+}
+
+type ActionDraft = {
+  target: string
+  delta: DeltaDraft
+  toggle: '' | 'on' | 'off'
+  appliance: ApplianceDraft
+}
+
+const EMPTY_APPLIANCE: ApplianceDraft = {
+  power: '',
+  function: '',
+  humidifier_mode: '',
+  target_humidity: '',
+  purifier_mode: '',
+}
+
 
 const EMPTY_DELTA: DeltaDraft = {
   power: '',
@@ -206,7 +232,16 @@ const EMPTY_DELTA: DeltaDraft = {
   light: '',
 }
 
-function isTriggerToggle(delta: CommandBody | TriggerToggle): delta is TriggerToggle {
+const EMPTY_ACTION: ActionDraft = {
+  target: '',
+  delta: EMPTY_DELTA,
+  toggle: '',
+  appliance: EMPTY_APPLIANCE,
+}
+
+function isTriggerToggle(
+  delta: CommandBody | TriggerToggle | ApplianceCommand,
+): delta is TriggerToggle {
   return 'enabled' in delta
 }
 
@@ -216,11 +251,27 @@ function draftFromAction(action: ScenarioAction): ActionDraft {
       target: `trigger:${action.target_id}`,
       delta: EMPTY_DELTA,
       toggle: action.delta.enabled ? 'on' : 'off',
+      appliance: EMPTY_APPLIANCE,
+    }
+  }
+  const onOff = (value: boolean | undefined): '' | 'on' | 'off' =>
+    value === undefined ? '' : value ? 'on' : 'off'
+  if (action.target_type === 'appliance') {
+    const command = action.delta as ApplianceCommand
+    return {
+      ...EMPTY_ACTION,
+      target: `appliance:${action.target_id}`,
+      appliance: {
+        power: onOff(command.power),
+        function: command.function ?? '',
+        humidifier_mode: command.humidifier_mode ?? '',
+        target_humidity:
+          command.target_humidity === undefined ? '' : String(command.target_humidity),
+        purifier_mode: command.purifier_mode ?? '',
+      },
     }
   }
   const delta = action.delta as CommandBody
-  const onOff = (value: boolean | undefined): '' | 'on' | 'off' =>
-    value === undefined ? '' : value ? 'on' : 'off'
   return {
     target: `${action.target_type}:${action.target_id}`,
     delta: {
@@ -235,6 +286,7 @@ function draftFromAction(action: ScenarioAction): ActionDraft {
       light: onOff(delta.light),
     },
     toggle: '',
+    appliance: EMPTY_APPLIANCE,
   }
 }
 
@@ -249,6 +301,25 @@ function actionFromDraft(draft: ActionDraft): ScenarioAction | string {
       target_id: Number(targetId),
       delta: { enabled: draft.toggle === 'on' },
     }
+  }
+  if (targetType === 'appliance') {
+    const draftAppliance = draft.appliance
+    const command: ApplianceCommand = {}
+    if (draftAppliance.power !== '') command.power = draftAppliance.power === 'on'
+    if (draftAppliance.function !== '') command.function = draftAppliance.function
+    if (draftAppliance.humidifier_mode !== '') {
+      command.humidifier_mode = draftAppliance.humidifier_mode as ApplianceCommand['humidifier_mode']
+    }
+    if (draftAppliance.target_humidity !== '') {
+      command.target_humidity = Number(draftAppliance.target_humidity)
+    }
+    if (draftAppliance.purifier_mode !== '') {
+      command.purifier_mode = draftAppliance.purifier_mode as ApplianceCommand['purifier_mode']
+    }
+    if (Object.keys(command).length === 0) {
+      return 'задайте хотя бы одно поле'
+    }
+    return { target_type: 'appliance', target_id: targetId, delta: command }
   }
   if (targetType !== 'device' && targetType !== 'group') {
     return 'выберите цель действия'
@@ -282,12 +353,13 @@ function ScenarioEditor({
   const devices = useDevices()
   const groups = useGroups()
   const triggers = useTriggers()
+  const appliances = useAppliances()
   const labels = useTargetLabels()
   const saveScenario = useSaveScenario()
   const [name, setName] = useState(scenario?.name ?? '')
   const [actions, setActions] = useState<ActionDraft[]>(
     scenario === null
-      ? [{ target: '', delta: EMPTY_DELTA, toggle: '' }]
+      ? [EMPTY_ACTION]
       : scenario.actions.map(draftFromAction),
   )
   const [error, setError] = useState<string | null>(null)
@@ -349,7 +421,7 @@ function ScenarioEditor({
               onChange={(event) => patchAction(index, { target: event.target.value })}
               className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm"
             >
-              <option value="">Цель: устройство, группа или триггер…</option>
+              <option value="">Цель: устройство, группа, прибор или триггер…</option>
               {groups.data?.map((group) => (
                 <option key={`g${group.id}`} value={`group:${group.id}`}>
                   {labels.group(group)}
@@ -358,6 +430,11 @@ function ScenarioEditor({
               {devices.data?.map((device) => (
                 <option key={device.uuid} value={`device:${device.uuid}`}>
                   {labels.device(device)}
+                </option>
+              ))}
+              {appliances.data?.map((appliance) => (
+                <option key={`a${appliance.id}`} value={`appliance:${appliance.id}`}>
+                  Прибор · {appliance.name}
                 </option>
               ))}
               {triggers.data?.map((trigger) => (
@@ -387,6 +464,11 @@ function ScenarioEditor({
               onChange={(toggle) =>
                 patchAction(index, { toggle: toggle as ActionDraft['toggle'] })
               }
+            />
+          ) : action.target.startsWith('appliance:') ? (
+            <ApplianceDeltaFields
+              value={action.appliance}
+              onChange={(appliance) => patchAction(index, { appliance })}
             />
           ) : (
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
@@ -461,7 +543,7 @@ function ScenarioEditor({
         onClick={() =>
           setActions((current) => [
             ...current,
-            { target: '', delta: EMPTY_DELTA, toggle: '' },
+            EMPTY_ACTION,
           ])
         }
       >
@@ -490,6 +572,56 @@ const TEMP_OPTIONS: [string, string][] = Array.from({ length: 21 }, (_, i) => {
   const value = String(10 + i)
   return [value, `${value} °C`]
 })
+
+const TARGET_HUMIDITY_OPTIONS: [string, string][] = [40, 45, 50, 55, 60, 65, 70].map(
+  (value) => [String(value), `${value} %`],
+)
+
+function ApplianceDeltaFields({
+  value,
+  onChange,
+}: {
+  value: ApplianceDraft
+  onChange: (value: ApplianceDraft) => void
+}) {
+  return (
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+      <DeltaSelect
+        label="Питание"
+        value={value.power}
+        options={ON_OFF_OPTIONS}
+        onChange={(power) => onChange({ ...value, power: power as ApplianceDraft['power'] })}
+      />
+      <DeltaSelect
+        label="Функция"
+        value={value.function}
+        options={[
+          ['humidify', 'увлажнение'],
+          ['purify', 'очистка'],
+        ]}
+        onChange={(fn) => onChange({ ...value, function: fn as ApplianceDraft['function'] })}
+      />
+      <DeltaSelect
+        label="Режим увлажнения"
+        value={value.humidifier_mode}
+        options={Object.entries(HUMIDIFIER_MODE_LABELS).map(([mode, title]) => [mode, title.toLowerCase()])}
+        onChange={(humidifier_mode) => onChange({ ...value, humidifier_mode })}
+      />
+      <DeltaSelect
+        label="Целевая влажность"
+        value={value.target_humidity}
+        options={TARGET_HUMIDITY_OPTIONS}
+        onChange={(target_humidity) => onChange({ ...value, target_humidity })}
+      />
+      <DeltaSelect
+        label="Режим очистки"
+        value={value.purifier_mode}
+        options={Object.entries(PURIFIER_MODE_LABELS).map(([mode, title]) => [mode, title.toLowerCase()])}
+        onChange={(purifier_mode) => onChange({ ...value, purifier_mode })}
+      />
+    </div>
+  )
+}
 
 function DeltaSelect({
   label,

@@ -18,6 +18,7 @@ const TRANSPORT_LABEL: Record<SensorProvider['transport'], string> = {
   mqtt: 'Wi-Fi · MQTT',
   ble: 'Bluetooth',
   cloud: 'Облако',
+  wifi: 'Wi-Fi · miIO',
 }
 
 export default function AddSensorWizard({ onClose }: { onClose: () => void }) {

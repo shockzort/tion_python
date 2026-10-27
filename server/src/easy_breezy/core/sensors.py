@@ -57,6 +57,7 @@ KIND_MAGICAIR = "magicair"
 KIND_MQTT = "mqtt"
 KIND_QINGPING_BLE = "qingping_ble"
 KIND_QINGPING_MQTT = "qingping_mqtt"
+KIND_XIAOMI_MIIO = "xiaomi_miio"
 
 
 def metric_is_stale(ts: int | float | None, now: float) -> bool:

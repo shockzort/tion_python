@@ -25,6 +25,7 @@ TOPIC_SENSOR_UPDATED = "sensor.updated"
 TOPIC_AUTOMATION_CHANGED = "automation.changed"
 TOPIC_BACKUP_FINISHED = "backup.finished"
 TOPIC_BACKUP_FAILED = "backup.failed"
+TOPIC_APPLIANCE_STATE_CHANGED = "appliance.state_changed"
 
 
 @dataclass(frozen=True, slots=True)

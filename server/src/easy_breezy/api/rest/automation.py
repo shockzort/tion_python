@@ -17,7 +17,12 @@ from sqlalchemy.exc import IntegrityError
 
 from easy_breezy.api.deps import ContainerDep, require_user
 from easy_breezy.api.rest.devices import wait_outcome
-from easy_breezy.api.schemas import CommandBody, CommandResult, GroupCommandResult
+from easy_breezy.api.schemas import (
+    ApplianceCommand,
+    CommandBody,
+    CommandResult,
+    GroupCommandResult,
+)
 from easy_breezy.automation.scenarios import ScenarioNotFoundError
 from easy_breezy.automation.scheduler import validate_cron
 from easy_breezy.container import AppContainer
@@ -49,12 +54,25 @@ class ScenarioAction(BaseModel):
 
     Цель-триггер (``target_type="trigger"``) переключает триггер вместо
     отправки команды устройству — так расписание через сценарий меняет
-    активный режим поддержания CO₂.
+    активный режим поддержания CO₂. Цель-прибор (``target_type="appliance"``,
+    id — did) несёт дельту прибора Xiaomi.
     """
 
-    target_type: Literal["device", "group", "trigger"]
+    target_type: Literal["device", "group", "trigger", "appliance"]
     target_id: str | int
-    delta: CommandBody | TriggerToggle
+    delta: CommandBody | TriggerToggle | ApplianceCommand
+
+    @model_validator(mode="before")
+    @classmethod
+    def _appliance_delta(cls, data: Any) -> Any:
+        # union не отличит {"power": true} бризера от прибора — решает цель
+        if (
+            isinstance(data, dict)
+            and data.get("target_type") == "appliance"
+            and isinstance(data.get("delta"), dict)
+        ):
+            return {**data, "delta": ApplianceCommand.model_validate(data["delta"])}
+        return data
 
     @model_validator(mode="after")
     def _check_target_id(self) -> ScenarioAction:
@@ -64,6 +82,12 @@ class ScenarioAction(BaseModel):
             raise ValueError(f"target_id {self.target_type} — целое число")
         if self.target_type == "device" and not isinstance(self.target_id, str):
             raise ValueError("target_id устройства — uuid-строка")
+        if self.target_type == "appliance":
+            if not isinstance(self.delta, ApplianceCommand):
+                raise ValueError("для прибора delta — команда прибора")
+            self.target_id = str(self.target_id)
+        elif isinstance(self.delta, ApplianceCommand):
+            raise ValueError("команда прибора применима только к прибору")
         if self.target_type == "trigger" and not isinstance(self.delta, TriggerToggle):
             raise ValueError("для триггера delta — {'enabled': bool}")
         if self.target_type != "trigger" and isinstance(self.delta, TriggerToggle):
@@ -74,6 +98,8 @@ class ScenarioAction(BaseModel):
         delta: dict[str, Any]
         if isinstance(self.delta, TriggerToggle):
             delta = {"enabled": self.delta.enabled}
+        elif isinstance(self.delta, ApplianceCommand):
+            delta = self.delta.to_delta().to_payload()
         else:
             delta = self.delta.to_delta().to_payload()
         return {
@@ -162,6 +188,12 @@ async def _validate_targets(
                     raise HTTPException(
                         status_code=404,
                         detail=f"устройство {action.target_id} не найдено",
+                    )
+            elif action.target_type == "appliance":
+                if container.appliances.get(str(action.target_id)) is None:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"прибор {action.target_id} не найден",
                     )
             elif action.target_type == "trigger":
                 if await triggers.get(int(action.target_id)) is None:

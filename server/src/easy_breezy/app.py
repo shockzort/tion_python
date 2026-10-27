@@ -17,6 +17,7 @@ from starlette.websockets import WebSocketClose
 from easy_breezy import __version__
 from easy_breezy.api import ws
 from easy_breezy.api.rest import (
+    appliances,
     auth,
     automation,
     commands,
@@ -115,6 +116,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(pairing.router)
     app.include_router(automation.router)
     app.include_router(sensors.router)
+    app.include_router(appliances.router)
     app.include_router(telemetry.router)
     app.include_router(prefs.router)
     app.include_router(intents.router)
