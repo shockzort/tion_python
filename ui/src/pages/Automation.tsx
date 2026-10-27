@@ -200,6 +200,8 @@ type DeltaDraft = {
 
 /** Черновик дельты прибора Xiaomi: '' — поле не менять. */
 type ApplianceDraft = {
+  /** Пресет «держать N %»: power+увлажнение+«по влажности»+цель разом. */
+  maintain: string
   power: '' | 'on' | 'off'
   function: '' | 'humidify' | 'purify'
   humidifier_mode: string
@@ -215,6 +217,7 @@ type ActionDraft = {
 }
 
 const EMPTY_APPLIANCE: ApplianceDraft = {
+  maintain: '',
   power: '',
   function: '',
   humidifier_mode: '',
@@ -258,10 +261,24 @@ function draftFromAction(action: ScenarioAction): ActionDraft {
     value === undefined ? '' : value ? 'on' : 'off'
   if (action.target_type === 'appliance') {
     const command = action.delta as ApplianceCommand
+    const keys = Object.keys(command).sort().join(',')
+    if (
+      keys === 'function,humidifier_mode,power,target_humidity' &&
+      command.power === true &&
+      command.function === 'humidify' &&
+      command.humidifier_mode === 'constant'
+    ) {
+      return {
+        ...EMPTY_ACTION,
+        target: `appliance:${action.target_id}`,
+        appliance: { ...EMPTY_APPLIANCE, maintain: String(command.target_humidity) },
+      }
+    }
     return {
       ...EMPTY_ACTION,
       target: `appliance:${action.target_id}`,
       appliance: {
+        maintain: '',
         power: onOff(command.power),
         function: command.function ?? '',
         humidifier_mode: command.humidifier_mode ?? '',
@@ -304,6 +321,18 @@ function actionFromDraft(draft: ActionDraft): ScenarioAction | string {
   }
   if (targetType === 'appliance') {
     const draftAppliance = draft.appliance
+    if (draftAppliance.maintain !== '') {
+      return {
+        target_type: 'appliance',
+        target_id: targetId,
+        delta: {
+          power: true,
+          function: 'humidify',
+          humidifier_mode: 'constant',
+          target_humidity: Number(draftAppliance.maintain),
+        },
+      }
+    }
     const command: ApplianceCommand = {}
     if (draftAppliance.power !== '') command.power = draftAppliance.power === 'on'
     if (draftAppliance.function !== '') command.function = draftAppliance.function
@@ -584,7 +613,20 @@ function ApplianceDeltaFields({
   value: ApplianceDraft
   onChange: (value: ApplianceDraft) => void
 }) {
+  const preset = value.maintain !== ''
   return (
+    <div className="flex flex-col gap-2">
+      <DeltaSelect
+        label="Поддерживать влажность (сам прибор, по своему датчику)"
+        value={value.maintain}
+        options={TARGET_HUMIDITY_OPTIONS}
+        onChange={(maintain) => onChange({ ...EMPTY_APPLIANCE, maintain })}
+      />
+      {preset ? (
+        <p className="text-xs text-slate-500">
+          Включит прибор в режиме «По влажности» с целью {value.maintain} %.
+        </p>
+      ) : (
     <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
       <DeltaSelect
         label="Питание"
@@ -619,6 +661,8 @@ function ApplianceDeltaFields({
         options={Object.entries(PURIFIER_MODE_LABELS).map(([mode, title]) => [mode, title.toLowerCase()])}
         onChange={(purifier_mode) => onChange({ ...value, purifier_mode })}
       />
+    </div>
+      )}
     </div>
   )
 }
@@ -956,7 +1000,14 @@ function TriggersTab() {
               {!trigger.enabled && <Badge tone="muted">выключен</Badge>}
             </div>
             <p className="truncate text-xs text-slate-400">
-              {trigger.kind === 'maintain' ? (
+              {trigger.kind === 'maintain' && trigger.metric === 'humidity' ? (
+                <>
+                  {sensorNames.get(trigger.sensor_id) ?? 'датчик'} · влажность ≈{' '}
+                  {trigger.threshold} % (увлажнять при &lt;{' '}
+                  {trigger.threshold - trigger.hysteresis}, выключать при &gt;{' '}
+                  {trigger.threshold + trigger.hysteresis}) · скорость {trigger.speed_max}
+                </>
+              ) : trigger.kind === 'maintain' ? (
                 <>
                   {sensorNames.get(trigger.sensor_id) ?? 'датчик'} · CO₂ ≈{' '}
                   {trigger.threshold} ppm (быстрее при &gt;{' '}
@@ -1052,23 +1103,241 @@ function triggerToBody(trigger: Trigger): TriggerBody {
   }
 }
 
-function TriggerEditor({
-  trigger,
-  sensors,
-  scenarios,
-  onClose,
-}: {
+type TriggerEditorProps = {
   trigger: Trigger | null
   sensors: Sensor[]
   scenarios: Scenario[]
   onClose: () => void
+}
+
+/** Выбор редактора: регулятор влажности живёт отдельно от бризерных правил. */
+function TriggerEditor(props: TriggerEditorProps) {
+  const isHumidity = props.trigger?.kind === 'maintain' && props.trigger.metric === 'humidity'
+  const [mode, setMode] = useState<TriggerKind | 'humidity'>(
+    isHumidity ? 'humidity' : (props.trigger?.kind ?? 'threshold'),
+  )
+  if (mode === 'humidity') {
+    return <HumidityTriggerEditor {...props} onSwitch={props.trigger === null ? setMode : undefined} />
+  }
+  return (
+    <BreezerTriggerEditor
+      key={mode}
+      {...props}
+      initialKind={mode}
+      onHumidity={props.trigger === null ? () => setMode('humidity') : undefined}
+    />
+  )
+}
+
+function KindTabs({
+  active,
+  onSelect,
+}: {
+  active: TriggerKind | 'humidity'
+  onSelect: (kind: TriggerKind | 'humidity') => void
 }) {
+  return (
+    <div className="flex flex-wrap gap-2">
+      <TabButton active={active === 'threshold'} label="Порог" onClick={() => onSelect('threshold')} />
+      <TabButton active={active === 'maintain'} label="Поддержание CO₂" onClick={() => onSelect('maintain')} />
+      <TabButton active={active === 'humidity'} label="Поддержание влажности" onClick={() => onSelect('humidity')} />
+    </div>
+  )
+}
+
+function HumidityTriggerEditor({
+  trigger,
+  sensors,
+  onClose,
+  onSwitch,
+}: TriggerEditorProps & { onSwitch?: (kind: TriggerKind | 'humidity') => void }) {
+  const saveTrigger = useSaveTrigger()
+  const appliances = useAppliances()
+  const labels = useTargetLabels()
+  const humiditySensors = sensors.filter((sensor) => sensor.capabilities.includes('humidity'))
+  const [name, setName] = useState(trigger?.name ?? '')
+  const [sensorId, setSensorId] = useState(
+    String(trigger?.sensor_id ?? humiditySensors[0]?.id ?? ''),
+  )
+  const [threshold, setThreshold] = useState(String(trigger?.threshold ?? 50))
+  const [deadband, setDeadband] = useState(String(trigger?.hysteresis ?? 3))
+  const [cooldownS, setCooldownS] = useState(String(trigger?.cooldown_s ?? 300))
+  const [fanLevel, setFanLevel] = useState(String(trigger?.speed_max ?? 2))
+  const [useWindow, setUseWindow] = useState(trigger?.window_start != null)
+  const [windowStart, setWindowStart] = useState(trigger?.window_start ?? '22:00')
+  const [windowEnd, setWindowEnd] = useState(trigger?.window_end ?? '08:00')
+  const [targets, setTargets] = useState<string[]>(
+    (trigger?.targets ?? []).map((t) => String(t.target_id)),
+  )
+  const [error, setError] = useState<string | null>(null)
+  const inputClass =
+    'rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-slate-200'
+
+  const save = async () => {
+    setError(null)
+    const target = Number(threshold)
+    const zone = Number(deadband)
+    if (name.trim() === '') return setError('дайте триггеру имя')
+    if (sensorId === '') return setError('нужен датчик влажности')
+    if (!Number.isFinite(target) || target < 20 || target > 90) {
+      return setError('целевая влажность — 20..90 %')
+    }
+    if (!Number.isFinite(zone) || zone <= 0) return setError('зона покоя — положительное число')
+    if (targets.length === 0) return setError('выберите прибор')
+    const body: TriggerBody = {
+      name: name.trim(),
+      sensor_id: Number(sensorId),
+      metric: 'humidity',
+      kind: 'maintain',
+      threshold: target,
+      hysteresis: zone,
+      cooldown_s: Math.max(0, Math.round(Number(cooldownS) || 0)),
+      window_start: useWindow ? windowStart : null,
+      window_end: useWindow ? windowEnd : null,
+      speed_max: Number(fanLevel),
+      targets: targets.map((id) => ({ target_type: 'appliance', target_id: id })),
+      enabled: trigger?.enabled ?? true,
+    }
+    try {
+      await saveTrigger.mutateAsync({ id: trigger?.id, body })
+      onClose()
+    } catch (exc) {
+      setError(exc instanceof ApiError ? exc.message : 'не удалось сохранить')
+    }
+  }
+
+  return (
+    <Card className="flex flex-col gap-3">
+      <p className="font-medium">
+        {trigger === null ? 'Новый триггер' : `Триггер «${trigger.name}»`}
+      </p>
+      {onSwitch !== undefined && <KindTabs active="humidity" onSelect={onSwitch} />}
+      <p className="text-xs text-slate-400">
+        Сервер включает увлажнение, когда влажность по выбранному датчику ниже
+        цели минус зона, и выключает прибор выше цели плюс зона. Удобно с
+        датчиком в другом углу комнаты; сценарии переключают дневной и ночной
+        регуляторы (включение одного выключает другой на том же приборе).
+      </p>
+      <input
+        value={name}
+        onChange={(event) => setName(event.target.value)}
+        placeholder="Название (например, Влажность · спальня)"
+        className="rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm outline-none focus:border-sky-500"
+      />
+      {humiditySensors.length === 0 ? (
+        <p className="text-sm text-amber-300">Нет датчиков влажности.</p>
+      ) : (
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          <label className="col-span-2 flex flex-col gap-1 text-xs text-slate-400 sm:col-span-1">
+            Датчик
+            <select value={sensorId} onChange={(event) => setSensorId(event.target.value)} className={inputClass}>
+              {humiditySensors.map((sensor) => (
+                <option key={sensor.id} value={sensor.id}>
+                  {labels.sensor(sensor)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1 text-xs text-slate-400">
+            Целевая влажность, %
+            <input
+              value={threshold}
+              onChange={(event) => setThreshold(event.target.value)}
+              inputMode="numeric"
+              className={inputClass}
+              aria-label="целевая влажность"
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-xs text-slate-400">
+            Зона покоя, %
+            <input
+              value={deadband}
+              onChange={(event) => setDeadband(event.target.value)}
+              inputMode="decimal"
+              className={inputClass}
+              aria-label="зона покоя"
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-xs text-slate-400">
+            Скорость увлажнения
+            <select value={fanLevel} onChange={(event) => setFanLevel(event.target.value)} className={inputClass}>
+              {['1', '2', '3'].map((level) => (
+                <option key={level} value={level}>
+                  {level}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1 text-xs text-slate-400">
+            Кулдаун, с
+            <input
+              value={cooldownS}
+              onChange={(event) => setCooldownS(event.target.value)}
+              inputMode="numeric"
+              className={inputClass}
+            />
+          </label>
+        </div>
+      )}
+      {Number(deadband) > 0 && Number.isFinite(Number(threshold)) && (
+        <p className="text-xs text-slate-500">
+          увлажнять при &lt; {Number(threshold) - Number(deadband)} %, выключать при &gt;{' '}
+          {Number(threshold) + Number(deadband)} %
+        </p>
+      )}
+      <div className="flex flex-col gap-1">
+        <p className="text-xs text-slate-400">Приборы</p>
+        {(appliances.data ?? []).length === 0 && (
+          <p className="text-sm text-slate-500">Приборов нет (EB_XIAOMI_DEVICES).</p>
+        )}
+        {(appliances.data ?? []).map((appliance) => (
+          <Toggle
+            key={appliance.id}
+            label={appliance.name}
+            checked={targets.includes(appliance.id)}
+            onChange={(checked) =>
+              setTargets((current) =>
+                checked ? [...current, appliance.id] : current.filter((id) => id !== appliance.id),
+              )
+            }
+          />
+        ))}
+      </div>
+      <Toggle label="Только в окне времени" checked={useWindow} onChange={setUseWindow} />
+      {useWindow && (
+        <div className="flex items-center gap-2 text-sm">
+          <input type="time" value={windowStart} onChange={(event) => setWindowStart(event.target.value)} className={inputClass} aria-label="начало окна" />
+          —
+          <input type="time" value={windowEnd} onChange={(event) => setWindowEnd(event.target.value)} className={inputClass} aria-label="конец окна" />
+        </div>
+      )}
+      {error !== null && <p className="text-sm text-rose-400">{error}</p>}
+      <div className="flex gap-2">
+        <Button onClick={save} disabled={saveTrigger.isPending}>
+          {saveTrigger.isPending ? 'Сохраняем…' : 'Сохранить'}
+        </Button>
+        <Button variant="ghost" onClick={onClose}>
+          Отмена
+        </Button>
+      </div>
+    </Card>
+  )
+}
+
+function BreezerTriggerEditor({
+  trigger,
+  sensors,
+  scenarios,
+  onClose,
+  initialKind,
+  onHumidity,
+}: TriggerEditorProps & { initialKind: TriggerKind; onHumidity?: () => void }) {
   const saveTrigger = useSaveTrigger()
   const devices = useDevices()
   const groups = useGroups()
   const labels = useTargetLabels()
   const maintainInitial = trigger !== null && trigger.kind === 'maintain'
-  const [kind, setKind] = useState<TriggerKind>(trigger?.kind ?? 'threshold')
+  const [kind, setKind] = useState<TriggerKind>(trigger?.kind ?? initialKind)
   const [name, setName] = useState(trigger?.name ?? '')
   const [sensorId, setSensorId] = useState(
     String(trigger?.sensor_id ?? sensors[0]?.id ?? ''),
@@ -1217,18 +1486,10 @@ function TriggerEditor({
         {trigger === null ? 'Новый триггер' : `Триггер «${trigger.name}»`}
       </p>
       {trigger === null && (
-        <div className="flex gap-2">
-          <TabButton
-            active={kind === 'threshold'}
-            label="Порог"
-            onClick={() => setKind('threshold')}
-          />
-          <TabButton
-            active={kind === 'maintain'}
-            label="Поддержание CO₂"
-            onClick={() => setKind('maintain')}
-          />
-        </div>
+        <KindTabs
+          active={kind}
+          onSelect={(next) => (next === 'humidity' ? onHumidity?.() : setKind(next))}
+        />
       )}
       {kind === 'maintain' && (
         <p className="text-xs text-slate-400">

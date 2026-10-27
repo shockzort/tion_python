@@ -1,4 +1,4 @@
-"""Поддержание CO₂: чистый регулятор скорости и семантика целей.
+"""Поддержание CO₂ и влажности: чистые регуляторы и семантика целей.
 
 Регулятор ступенчатый: одна корректировка на измерение (кулдаун гасит
 дребезг), шаг ±1, при ошибке ≥ ``STRONG_FACTOR`` × зоны покоя — ±2.
@@ -10,6 +10,12 @@
 до 6-й скорости ~8–10 минут — сопоставимо с автоматикой MagicAir.
 
 Функция ``decide_speed`` чистая (без I/O), тестируется таблично.
+
+Влажность (``metric="humidity"``, цели — приборы Xiaomi) регулируется
+двухпозиционно ``decide_humidity``: ниже ``цель − зона`` — включить
+увлажнение на заданной скорости, выше ``цель + зона`` — выключить
+прибор; внутри зоны — тишина. Своя «по влажности» прибора не
+используется: регулирование идёт по выбранному датчику комнаты.
 """
 
 from __future__ import annotations
@@ -20,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from easy_breezy.ble.protocol.s4 import FAN_SPEED_MIN
 from easy_breezy.core.model import StateDelta
+from easy_breezy.integrations.xiaomi.ha2 import Ha2Delta, Ha2State
 from easy_breezy.storage.models import Trigger
 from easy_breezy.storage.repos import GroupRepo, TriggerRepo
 
@@ -31,6 +38,17 @@ SPEED_FLOOR_ALLOWED = 0
 
 DEFAULT_DEADBAND = 50.0
 """Зона покоя по умолчанию, ppm."""
+
+METRIC_CO2 = "co2"
+METRIC_HUMIDITY = "humidity"
+
+HUMIDITY_DEFAULT_DEADBAND = 3.0
+"""Зона покоя влажности по умолчанию, %."""
+
+HUMIDITY_DEFAULT_COOLDOWN_S = 300
+"""Увлажнитель инертен: переключать не чаще раза в 5 минут."""
+
+HUMIDITY_DEFAULT_FAN_LEVEL = 2
 
 DEFAULT_COOLDOWN_S = 120
 """Минимум секунд между корректировками по умолчанию."""
@@ -83,8 +101,30 @@ def decide_speed(
     return None
 
 
+def decide_humidity(
+    *,
+    value: float,
+    target: float,
+    deadband: float,
+    state: Ha2State,
+    fan_level: int,
+) -> Ha2Delta | None:
+    """Одно переключение увлажнения по измерению; None — ничего не менять."""
+    humidifying = state.power and state.function == "humidify"
+    if value < target - deadband and not humidifying:
+        return Ha2Delta(
+            power=True,
+            function="humidify",
+            humidifier_mode="fan",
+            humidifier_fan_level=fan_level,
+        )
+    if value > target + deadband and humidifying:
+        return Ha2Delta(power=False)
+    return None
+
+
 async def expand_targets(session: AsyncSession, targets: list[Any] | None) -> set[str]:
-    """Раскрывает цели maintain-триггера в множество uuid устройств."""
+    """Раскрывает цели maintain-триггера: uuid устройств и did приборов."""
     uuids: set[str] = set()
     groups = GroupRepo(session)
     for entry in targets or []:

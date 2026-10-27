@@ -104,3 +104,78 @@ describe('Automation · триггеры', () => {
     expect(screen.getByRole('option', { name: 'CO₂ · Спальня' })).toBeTruthy()
   })
 })
+
+describe('Automation · влажность', () => {
+  const appliance = { id: '2232120756', name: 'Хлюпик', model: 'xiaomi.humidifier.ha2', online: true, state: null, state_at: null, error: null }
+
+  const mockApi = () =>
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input)
+      if (init?.method === 'POST') return json({ id: 9, ...JSON.parse(String(init.body)) }, 201)
+      if (url.startsWith('/api/appliances')) return json([appliance])
+      if (url.startsWith('/api/sensors')) {
+        return json([
+          { id: 3, name: 'CO₂', kind: 'magicair', capabilities: ['co2'], room_id: null, last_values: null, stale: false },
+          { id: 4, name: 'Qingping', kind: 'qingping_mqtt', capabilities: ['co2', 'humidity'], room_id: null, last_values: null, stale: false },
+        ])
+      }
+      return json([])
+    })
+
+  const renderPage = () =>
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <Automation />
+      </QueryClientProvider>,
+    )
+
+  it('сценарий: пресет «поддерживать влажность» уходит одной командой прибору', async () => {
+    const fetchMock = mockApi()
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: '+ Новый сценарий' }))
+    fireEvent.change(screen.getByPlaceholderText(/Название/), { target: { value: 'Ночь' } })
+    const option = await screen.findByRole('option', { name: 'Прибор · Хлюпик' })
+    fireEvent.change(option.closest('select')!, { target: { value: 'appliance:2232120756' } })
+    fireEvent.change(screen.getByLabelText(/Поддерживать влажность/), { target: { value: '55' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
+
+    await waitFor(() => expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(true))
+    const post = fetchMock.mock.calls.find(([, init]) => init?.method === 'POST')
+    expect(JSON.parse(String(post?.[1]?.body))).toEqual({
+      name: 'Ночь',
+      actions: [
+        {
+          target_type: 'appliance',
+          target_id: '2232120756',
+          delta: { power: true, function: 'humidify', humidifier_mode: 'constant', target_humidity: 55 },
+        },
+      ],
+    })
+  })
+
+  it('триггер: регулятор влажности берёт только датчики влажности и приборы', async () => {
+    const fetchMock = mockApi()
+    renderPage()
+    fireEvent.click(screen.getByText('Триггеры'))
+    fireEvent.click(await screen.findByRole('button', { name: '+ Новый триггер' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Поддержание влажности' }))
+    fireEvent.change(screen.getByPlaceholderText(/Название/), { target: { value: 'Влажность' } })
+    expect(screen.queryByRole('option', { name: 'CO₂' })).toBeNull()
+    fireEvent.click(await screen.findByRole('switch', { name: 'Хлюпик' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
+
+    await waitFor(() => expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(true))
+    const post = fetchMock.mock.calls.find(([, init]) => init?.method === 'POST')
+    expect(JSON.parse(String(post?.[1]?.body))).toMatchObject({
+      name: 'Влажность',
+      sensor_id: 4,
+      metric: 'humidity',
+      kind: 'maintain',
+      threshold: 50,
+      hysteresis: 3,
+      cooldown_s: 300,
+      speed_max: 2,
+      targets: [{ target_type: 'appliance', target_id: '2232120756' }],
+    })
+  })
+})

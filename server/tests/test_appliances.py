@@ -6,9 +6,7 @@ import asyncio
 from typing import Any
 
 import pytest
-from fastapi.testclient import TestClient
 
-from easy_breezy.app import create_app
 from easy_breezy.automation.scenarios import ScenarioService
 from easy_breezy.config import XiaomiDeviceConfig
 from easy_breezy.core.events import TOPIC_APPLIANCE_STATE_CHANGED, EventBus
@@ -23,10 +21,8 @@ from easy_breezy.integrations.xiaomi.service import (
 from easy_breezy.storage import Database
 from easy_breezy.storage.models import CommandSource
 from easy_breezy.storage.repos import SensorRepo
-from tests import conftest
 from tests.conftest import (
     CoreEnv,
-    bootstrap_admin,
     container_of,
     wait_for_condition,
 )
@@ -187,26 +183,6 @@ async def test_scenario_appliance_action(core: CoreEnv) -> None:
 
 
 # --- REST ----------------------------------------------------------------------
-
-
-@pytest.fixture
-def appliance_client(tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> Any:
-    device = FakeMiioDevice()
-    monkeypatch.setattr(
-        "easy_breezy.integrations.xiaomi.service._default_transport",
-        lambda _config: fake_transport(device),
-    )
-    app = create_app(
-        conftest.test_settings(
-            log_level="WARNING",
-            data_dir=tmp_path,
-            fake_devices=1,
-            xiaomi_devices=[_config()],
-        )
-    )
-    with TestClient(app) as client:
-        bootstrap_admin(client, app)
-        yield client, app, device
 
 
 def test_api_list_and_command(appliance_client: Any) -> None:

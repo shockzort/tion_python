@@ -130,7 +130,7 @@ export type DiscoveredSensor = {
 export type TriggerKind = 'threshold' | 'maintain'
 
 export type TriggerTarget = {
-  target_type: 'device' | 'group'
+  target_type: 'device' | 'group' | 'appliance'
   target_id: string | number
 }
 

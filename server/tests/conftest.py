@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 
 from easy_breezy.app import create_app
 from easy_breezy.ble.fake import FakeS4Device, FakeTransport
-from easy_breezy.config import Settings
+from easy_breezy.config import Settings, XiaomiDeviceConfig
 from easy_breezy.container import AppContainer
 from easy_breezy.core.bus import CommandBus
 from easy_breezy.core.events import EventBus
@@ -23,6 +23,7 @@ from easy_breezy.core.holds import HoldManager
 from easy_breezy.core.registry import DeviceRegistry
 from easy_breezy.core.state import StateCache
 from easy_breezy.storage import Database
+from tests.fake_miio import TEST_DID, TEST_TOKEN, FakeMiioDevice, fake_transport
 
 
 async def wait_for_condition(
@@ -216,3 +217,36 @@ def wait_devices_online(client: TestClient) -> list[dict[str, Any]]:
             return devices
         time.sleep(0.05)
     raise AssertionError("фейковые бризеры не вышли в online")
+
+
+# --- приборы Xiaomi -----------------------------------------------------------
+
+
+@pytest.fixture
+def appliance_client(tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> Any:
+    """Приложение с одним прибором на фейковом miIO: (client, app, device)."""
+    device = FakeMiioDevice()
+    monkeypatch.setattr(
+        "easy_breezy.integrations.xiaomi.service._default_transport",
+        lambda _config: fake_transport(device),
+    )
+    app = create_app(
+        test_settings(
+            log_level="WARNING",
+            data_dir=tmp_path,
+            fake_devices=1,
+            xiaomi_devices=[
+                XiaomiDeviceConfig.model_validate(
+                    {
+                        "did": TEST_DID,
+                        "host": "fake",
+                        "token": TEST_TOKEN,
+                        "name": "Хлюпик",
+                    }
+                )
+            ],
+        )
+    )
+    with TestClient(app) as client:
+        bootstrap_admin(client, app)
+        yield client, app, device

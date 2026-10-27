@@ -183,7 +183,14 @@ def build_container(settings: Settings) -> AppContainer:
     tz = resolve_timezone(settings.timezone)
     scheduler = SchedulerService(db, scenarios, events, clock, tz=tz)
     triggers = TriggerEngine(
-        db, scenarios, events, clock, cache=cache, holds=holds, tz=tz
+        db,
+        scenarios,
+        events,
+        clock,
+        cache=cache,
+        holds=holds,
+        tz=tz,
+        appliances=appliances,
     )
     magicair = MagicAirPoller(
         sensors,

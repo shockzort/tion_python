@@ -22,6 +22,9 @@ from easy_breezy.api.rest.automation import ScenarioAction, _notify_changed
 from easy_breezy.automation.maintain import (
     DEFAULT_COOLDOWN_S,
     DEFAULT_DEADBAND,
+    HUMIDITY_DEFAULT_COOLDOWN_S,
+    HUMIDITY_DEFAULT_DEADBAND,
+    HUMIDITY_DEFAULT_FAN_LEVEL,
     KIND_MAINTAIN,
     SPEED_FLOOR_ALLOWED,
     disable_conflicting_maintain,
@@ -149,13 +152,15 @@ class SensorUpdate(BaseModel):
 
 
 class TriggerTarget(BaseModel):
-    """Цель регулирования maintain-триггера: устройство или группа."""
+    """Цель регулирования maintain-триггера: устройство, группа или прибор."""
 
-    target_type: Literal["device", "group"]
+    target_type: Literal["device", "group", "appliance"]
     target_id: str | int
 
     @model_validator(mode="after")
     def _check_target_id(self) -> TriggerTarget:
+        if self.target_type == "appliance":
+            self.target_id = str(self.target_id)
         if self.target_type == "group" and not isinstance(self.target_id, int):
             raise ValueError("target_id группы — целое число")
         if self.target_type == "device" and not isinstance(self.target_id, str):
@@ -172,6 +177,11 @@ class TriggerBody(BaseModel):
     Для ``maintain``: ``threshold`` — целевой CO₂, ``hysteresis`` — зона
     покоя (по умолчанию 50 ppm), ``cooldown_s`` — минимум секунд между
     корректировками (по умолчанию 120), ``op`` не используется.
+
+    ``maintain`` по ``humidity``: цели — только приборы, ``threshold`` —
+    целевая влажность, зона покоя по умолчанию 3 %, кулдаун 300 с,
+    ``speed_max`` — скорость увлажнения 1..3 (по умолчанию 2),
+    ``speed_min`` не используется.
     """
 
     name: str = Field(min_length=1, max_length=100)
@@ -221,8 +231,12 @@ class TriggerBody(BaseModel):
         return self
 
     def _check_maintain(self) -> TriggerBody:
+        if self.metric == "humidity":
+            return self._check_maintain_humidity()
         if self.metric != "co2":
-            raise ValueError("поддержание реализовано только для CO₂")
+            raise ValueError("поддержание — для CO₂ или влажности")
+        if any(target.target_type == "appliance" for target in self.targets or []):
+            raise ValueError("поддержание CO₂ управляет бризерами, не приборами")
         if self.speed_min is None or self.speed_max is None:
             raise ValueError("задайте диапазон скоростей (speed_min и speed_max)")
         if self.speed_min > self.speed_max:
@@ -243,6 +257,34 @@ class TriggerBody(BaseModel):
             raise ValueError("зона покоя (hysteresis) должна быть больше нуля")
         if "cooldown_s" not in self.model_fields_set:
             self.cooldown_s = DEFAULT_COOLDOWN_S
+        return self
+
+    def _check_maintain_humidity(self) -> TriggerBody:
+        if not self.targets:
+            raise ValueError("задайте хотя бы один прибор")
+        if any(target.target_type != "appliance" for target in self.targets):
+            raise ValueError("поддержание влажности управляет только приборами")
+        if not 20 <= self.threshold <= 90:
+            raise ValueError("целевая влажность — 20..90 %")
+        if (
+            self.enter_scenario_id is not None
+            or self.enter_actions is not None
+            or self.exit_scenario_id is not None
+            or self.exit_actions is not None
+        ):
+            raise ValueError("enter/exit-действия не применимы к поддержанию")
+        if self.speed_max is None:
+            self.speed_max = HUMIDITY_DEFAULT_FAN_LEVEL
+        if not 1 <= self.speed_max <= 3:
+            raise ValueError("скорость увлажнения — 1..3")
+        self.speed_min = None
+        self.op = ">"  # колонка NOT NULL; для maintain не используется
+        if "hysteresis" not in self.model_fields_set:
+            self.hysteresis = HUMIDITY_DEFAULT_DEADBAND
+        if self.hysteresis <= 0:
+            raise ValueError("зона покоя (hysteresis) должна быть больше нуля")
+        if "cooldown_s" not in self.model_fields_set:
+            self.cooldown_s = HUMIDITY_DEFAULT_COOLDOWN_S
         return self
 
     def stored_fields(self) -> dict[str, Any]:
@@ -339,7 +381,13 @@ async def _check_trigger_refs(container: AppContainer, body: TriggerBody) -> Non
         devices = DeviceRepo(session)
         groups = GroupRepo(session)
         for target in body.targets or []:
-            if target.target_type == "device":
+            if target.target_type == "appliance":
+                if container.appliances.get(str(target.target_id)) is None:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"прибор {target.target_id} не найден",
+                    )
+            elif target.target_type == "device":
                 device = await devices.get(str(target.target_id))
                 if device is None or device.deleted_at is not None:
                     raise HTTPException(

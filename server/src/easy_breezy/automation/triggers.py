@@ -15,6 +15,10 @@ Maintain-триггеры (поддержание CO₂) оцениваются 
 пропускаются ДО постановки (без спама skipped_hold в журнал и без
 сжигания кулдауна — регулирование возобновляется сразу после hold).
 
+Maintain по влажности (``metric="humidity"``) берёт состояние приборов
+Xiaomi из ApplianceService и решает ``decide_humidity``; офлайн-приборы
+пропускаются, кулдаун сгорает только при реальной команде.
+
 Действия исполняются через ScenarioService с приоритетом триггера (1):
 manual-hold пропускает их со статусом ``skipped_hold`` (FR-23), внутри
 автоматики триггер обгоняет расписание (план §9).
@@ -34,7 +38,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from easy_breezy.automation.clock import Clock
 from easy_breezy.automation.maintain import (
     DEFAULT_DEADBAND,
+    HUMIDITY_DEFAULT_DEADBAND,
+    HUMIDITY_DEFAULT_FAN_LEVEL,
     KIND_MAINTAIN,
+    METRIC_HUMIDITY,
+    decide_humidity,
     decide_speed,
     expand_targets,
 )
@@ -44,6 +52,7 @@ from easy_breezy.core.events import TOPIC_SENSOR_UPDATED, EventBus, Subscription
 from easy_breezy.core.holds import HoldManager
 from easy_breezy.core.sensors import METRICS, metric_is_stale
 from easy_breezy.core.state import StateCache
+from easy_breezy.integrations.xiaomi.service import ApplianceService
 from easy_breezy.storage import Database
 from easy_breezy.storage.models import CommandSource, Trigger
 from easy_breezy.storage.repos import SensorRepo, TriggerRepo
@@ -127,6 +136,7 @@ class TriggerEngine:
         cache: StateCache,
         holds: HoldManager,
         tz: tzinfo,
+        appliances: ApplianceService | None = None,
     ) -> None:
         self._db = db
         self._scenarios = scenarios
@@ -135,6 +145,7 @@ class TriggerEngine:
         self._cache = cache
         self._holds = holds
         self._tz = tz
+        self._appliances = appliances
         self._tasks: list[asyncio.Task[None]] = []
         self._subscription: Subscription | None = None
         self._silent_ids: set[int] = set()
@@ -237,6 +248,14 @@ class TriggerEngine:
             and ts - trigger.last_fired_at < trigger.cooldown_s
         ):
             return None
+        if trigger.metric == METRIC_HUMIDITY:
+            switches = self._humidity_actions(trigger, value)
+            if not switches:
+                return None
+            trigger.last_fired_at = int(ts)
+            return _FirePlan(
+                trigger.id, trigger.name, "maintain", value, int(ts), None, switches
+            )
         if trigger.speed_min is None or trigger.speed_max is None:
             log.warning("maintain_misconfigured", trigger_id=trigger.id)
             return None
@@ -287,6 +306,44 @@ class TriggerEngine:
         return _FirePlan(
             trigger.id, trigger.name, "maintain", value, int(ts), None, actions
         )
+
+    def _humidity_actions(self, trigger: Trigger, value: float) -> list[Any]:
+        """Переключения увлажнения по целям-приборам (офлайн — пропуск)."""
+        if self._appliances is None:
+            return []
+        deadband = (
+            trigger.hysteresis if trigger.hysteresis > 0 else HUMIDITY_DEFAULT_DEADBAND
+        )
+        fan_level = trigger.speed_max or HUMIDITY_DEFAULT_FAN_LEVEL
+        actions: list[Any] = []
+        for entry in trigger.targets or []:
+            if not isinstance(entry, dict) or entry.get("target_type") != "appliance":
+                continue
+            appliance_id = str(entry.get("target_id"))
+            snapshot = self._appliances.get(appliance_id)
+            if snapshot is None or not snapshot.online or snapshot.state is None:
+                log.debug(
+                    "maintain_skipped_offline",
+                    trigger_id=trigger.id,
+                    appliance_id=appliance_id,
+                )
+                continue
+            delta = decide_humidity(
+                value=value,
+                target=trigger.threshold,
+                deadband=deadband,
+                state=snapshot.state,
+                fan_level=fan_level,
+            )
+            if delta is not None:
+                actions.append(
+                    {
+                        "target_type": "appliance",
+                        "target_id": appliance_id,
+                        "delta": delta.to_payload(),
+                    }
+                )
+        return actions
 
     async def _execute(self, plan: _FirePlan) -> None:
         log.info(
