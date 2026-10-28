@@ -3,7 +3,8 @@ import { formatValue, METRIC_INFO, METRIC_ORDER, metricColor, type SensorMetric 
 import { usePersistentState } from '../lib/usePersistentState'
 import { Badge, Card } from './ui'
 
-export default function SensorCard({ sensor, roomName }: { sensor: Sensor; roomName?: string }) {
+/** Что и как показывать по датчику: метрики, свежесть, цвет. */
+function sensorView(sensor: Sensor) {
   const values = sensor.last_values ?? {}
   const shown = METRIC_ORDER.filter((metric) => metric !== 'battery' && values[metric] !== undefined)
   const stale = (metric: SensorMetric) => sensor.metric_stale?.[metric] ?? sensor.stale
@@ -11,12 +12,45 @@ export default function SensorCard({ sensor, roomName }: { sensor: Sensor; roomN
     const ts = sensor.last_metric_at?.[metric]
     return `${stale(metric) ? 'Данные устарели. ' : ''}${ts ? new Date(ts * 1000).toLocaleString('ru') : 'Время измерения неизвестно'}`
   }
+  const colorOf = (metric: SensorMetric, value: number) => (stale(metric) ? null : metricColor(metric, value))
+  const toneOf = (metric: SensorMetric) => (stale(metric) ? 'text-slate-500' : 'text-slate-200')
+  return { values, shown, stale, age, colorOf, toneOf }
+}
+
+/** Компактная строка показаний: «CO₂ 757 · 24,9 °C · 41,4 % · PM2.5 3». */
+export function CompactMetrics({ sensor, className = '' }: { sensor: Sensor; className?: string }) {
+  const { values, shown, age, colorOf, toneOf } = sensorView(sensor)
+  return (
+    <p className={`flex flex-wrap gap-x-3 gap-y-1 text-sm tabular-nums ${className}`}>
+      {shown.map((metric) => {
+        const value = values[metric] as number
+        const color = colorOf(metric, value)
+        const unit = METRIC_INFO[metric].unit
+        const isPrefixed = unit === 'ppm' || unit === 'мкг/м³'
+        return (
+          <span key={metric} title={age(metric)} className="whitespace-nowrap text-slate-400">
+            {isPrefixed && `${METRIC_INFO[metric].short} `}
+            <span
+              className={`font-bold ${toneOf(metric)}`}
+              style={color === null ? undefined : { color }}
+              data-metric={metric}
+            >
+              {formatValue(metric, value)}
+            </span>
+            {!isPrefixed && ` ${unit}`}
+          </span>
+        )
+      })}
+    </p>
+  )
+}
+
+export default function SensorCard({ sensor, roomName }: { sensor: Sensor; roomName?: string }) {
+  const { values, shown, stale, age, colorOf, toneOf } = sensorView(sensor)
   const partlyStale = sensor.stale && shown.some((metric) => !stale(metric))
   const battery = values.battery
   // как у бризеров: per-датчик и per-браузер
   const [collapsed, setCollapsed] = usePersistentState(`eb:sensor-collapsed:${sensor.id}`, false)
-  const colorOf = (metric: SensorMetric, value: number) => (stale(metric) ? null : metricColor(metric, value))
-  const toneOf = (metric: SensorMetric) => (stale(metric) ? 'text-slate-500' : 'text-slate-200')
   return (
     <Card className={`flex flex-col py-3 ${collapsed ? 'gap-1.5' : 'gap-3'}`}>
       <div className="flex items-start justify-between gap-2">
@@ -56,28 +90,7 @@ export default function SensorCard({ sensor, roomName }: { sensor: Sensor; roomN
       {shown.length === 0 ? (
         <span className="text-sm text-slate-500">ждём данные…</span>
       ) : collapsed ? (
-        // компактная строка: «CO₂ 757 · 24,9 °C · 41,4 % · PM2.5 3»
-        <p className="flex flex-wrap gap-x-3 gap-y-1 pl-4 text-sm tabular-nums">
-          {shown.map((metric) => {
-            const value = values[metric] as number
-            const color = colorOf(metric, value)
-            const unit = METRIC_INFO[metric].unit
-            const isPrefixed = unit === 'ppm' || unit === 'мкг/м³'
-            return (
-              <span key={metric} title={age(metric)} className="whitespace-nowrap text-slate-400">
-                {isPrefixed && `${METRIC_INFO[metric].short} `}
-                <span
-                  className={`font-bold ${toneOf(metric)}`}
-                  style={color === null ? undefined : { color }}
-                  data-metric={metric}
-                >
-                  {formatValue(metric, value)}
-                </span>
-                {!isPrefixed && ` ${unit}`}
-              </span>
-            )
-          })}
-        </p>
+        <CompactMetrics sensor={sensor} className="pl-4" />
       ) : (
         <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
           {shown.map((metric) => {

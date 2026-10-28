@@ -111,7 +111,9 @@ def parse_hello(data: bytes) -> HelloReply:
     return HelloReply(did=did, stamp=stamp)
 
 
-def encode_payload(message_id: int, method: str, params: list[Any]) -> bytes:
+def encode_payload(
+    message_id: int, method: str, params: list[Any] | dict[str, Any]
+) -> bytes:
     """Тело запроса: компактный JSON (устройства режут длинные кадры)."""
     body = {"id": message_id, "method": method, "params": params}
     return json.dumps(body, separators=(",", ":")).encode()

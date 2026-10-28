@@ -161,6 +161,16 @@ class ApplianceCommand(BaseModel):
     screen: bool | None = None
     sound: bool | None = None
     child_lock: bool | None = None
+    screen_brightness: Literal["auto", "bright", "medium", "dim"] | None = None
+    auto_dry: bool | None = None
+    overwet_protect: bool | None = None
+    purifier_favorite_level: int | None = Field(default=None, ge=0, le=9)
+    off_timer: bool | None = None
+    off_timer_hours: int | None = Field(default=None, ge=1, le=8)
+    night_mode: bool | None = None
+    night_start: int | None = Field(default=None, ge=0, le=1439)
+    night_end: int | None = Field(default=None, ge=0, le=1439)
+    display_metric: Literal["pm25", "pm1", "pm10"] | None = None
 
     @model_validator(mode="after")
     def _require_any_field(self) -> ApplianceCommand:
@@ -170,3 +180,18 @@ class ApplianceCommand(BaseModel):
 
     def to_delta(self) -> Ha2Delta:
         return Ha2Delta.from_payload(self.model_dump(exclude_none=True))
+
+
+class ApplianceAction(BaseModel):
+    """Действие обслуживания прибора (см. ``ha2.ACTIONS``)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    action: Literal[
+        "self_clean_start",
+        "self_clean_stop",
+        "dry_start",
+        "dry_stop",
+        "reset_purifier_filter",
+        "reset_humidifier_filter",
+    ]

@@ -6,6 +6,12 @@
 памяти (запросные пути читают кэш, а не сеть) и уходит в шину событием
 ``appliance.state_changed`` — WS-мост обновляет UI.
 
+Опрос и команда одного прибора идут под общим замком: полный опрос — это
+несколько запросов, и команда между ними давала бы в кэше смесь старого и
+нового состояния (UI «дребезжал»). Прибор применяет запись не мгновенно,
+поэтому после команды состояние перечитывается, пока не совпадёт с дельтой
+(не дольше ``SETTLE_READS`` чтений).
+
 Встроенные датчики прибора (влажность, температура, PM2.5) публикуются
 через ``SensorIngest`` как датчик ``xiaomi_miio:<did>`` (регистрируется
 сам) — так прибор сразу попадает в графики, карточки датчиков и триггеры.
@@ -39,6 +45,9 @@ SENSOR_EVERY = 60.0
 """Показания в реестр датчиков не чаще раза в минуту (как у Qingping)."""
 MAX_PROPS_PER_REQUEST = 10
 """ha2 молча отбрасывает get_properties на 20 свойств (16 ещё принимает)."""
+SETTLE_READS = 3
+SETTLE_DELAY = 0.7
+"""Пауза между перечитываниями после команды, с."""
 _BACKOFF_INITIAL = 1.0
 _BACKOFF_MAX = 20.0
 
@@ -96,12 +105,14 @@ class ApplianceService:
         poll_interval: float = POLL_INTERVAL,
         now: Callable[[], float] = time.time,
         jitter: Callable[[], float] = random.random,
+        settle_delay: float = SETTLE_DELAY,
     ) -> None:
         self._sensors = sensors
         self._events = events
         self._poll_interval = poll_interval
         self._now = now
         self._jitter = jitter
+        self._settle_delay = settle_delay
         self._configs = {str(config.did): config for config in configs}
         self._transports = {
             appliance_id: (transport_factory or _default_transport)(config)
@@ -113,6 +124,7 @@ class ApplianceService:
             )
             for appliance_id, config in self._configs.items()
         }
+        self._locks = {appliance_id: asyncio.Lock() for appliance_id in self._configs}
         self._sensor_at: dict[str, float] = {}
         self._tasks: list[asyncio.Task[None]] = []
 
@@ -176,6 +188,10 @@ class ApplianceService:
 
     async def refresh(self, appliance_id: str) -> ApplianceSnapshot:
         """Один опрос прибора: обновляет кэш, шлёт события и показания датчиков."""
+        async with self._locks[appliance_id]:
+            return await self._refresh_locked(appliance_id)
+
+    async def _refresh_locked(self, appliance_id: str) -> ApplianceSnapshot:
         snapshot = self._snapshots[appliance_id]
         try:
             state = await self._read_state(appliance_id)
@@ -183,6 +199,11 @@ class ApplianceService:
             if snapshot.online:
                 log.warning(
                     "appliance_offline", appliance_id=appliance_id, error=str(exc)
+                )
+            elif snapshot.error != str(exc):
+                # недоступен с самого старта (неверный токен, IP) — тоже в лог
+                log.warning(
+                    "appliance_unreachable", appliance_id=appliance_id, error=str(exc)
                 )
             self._store(replace(snapshot, online=False, error=str(exc)))
             raise
@@ -229,6 +250,12 @@ class ApplianceService:
             source=source,
             delta=delta.to_payload(),
         )
+        async with self._locks[appliance_id]:
+            return await self._command_locked(appliance_id, delta)
+
+    async def _command_locked(
+        self, appliance_id: str, delta: Ha2Delta
+    ) -> ApplianceSnapshot:
         try:
             result = await self._transports[appliance_id].call(
                 "set_properties", delta.to_properties()
@@ -251,8 +278,9 @@ class ApplianceService:
             log.warning(
                 "appliance_command_rejected", appliance_id=appliance_id, props=rejected
             )
+        expected = {} if rejected else delta.to_payload()
         try:
-            snapshot = await self.refresh(appliance_id)
+            snapshot = await self._settle(appliance_id, expected)
         except (MiioError, ApplianceDeltaError) as exc:
             raise ApplianceError(
                 f"команда ушла, но состояние не прочитано: {exc}"
@@ -260,3 +288,51 @@ class ApplianceService:
         if rejected:
             raise ApplianceError(f"прибор отклонил: {', '.join(map(str, rejected))}")
         return snapshot
+
+    async def _settle(
+        self, appliance_id: str, expected: dict[str, Any]
+    ) -> ApplianceSnapshot:
+        """Перечитывает состояние, пока прибор не применит ``expected``."""
+        snapshot = await self._refresh_locked(appliance_id)
+        for _ in range(SETTLE_READS - 1):
+            state = snapshot.state
+            if state is None or all(
+                getattr(state, name) == value for name, value in expected.items()
+            ):
+                break
+            await asyncio.sleep(self._settle_delay)
+            snapshot = await self._refresh_locked(appliance_id)
+        return snapshot
+
+    async def action(
+        self, appliance_id: str, name: str, *, source: str
+    ) -> ApplianceSnapshot:
+        """Действие обслуживания (самоочистка, сушка, сброс фильтра)."""
+        if appliance_id not in self._snapshots:
+            raise ApplianceNotFoundError(f"прибор {appliance_id} не найден")
+        try:
+            params = ha2.action_request(name)
+        except ApplianceDeltaError as exc:
+            raise ApplianceError(str(exc)) from exc
+        log.info(
+            "appliance_action", appliance_id=appliance_id, source=source, action=name
+        )
+        async with self._locks[appliance_id]:
+            try:
+                result = await self._transports[appliance_id].call("action", params)
+            except MiioError as exc:
+                log.warning(
+                    "appliance_action_failed",
+                    appliance_id=appliance_id,
+                    error=str(exc),
+                )
+                raise ApplianceError(str(exc)) from exc
+            code = result.get("code") if isinstance(result, dict) else None
+            if code not in (0, None):
+                raise ApplianceError(f"прибор отклонил действие {name}: code {code}")
+            try:
+                return await self._settle(appliance_id, {})
+            except (MiioError, ApplianceDeltaError) as exc:
+                raise ApplianceError(
+                    f"действие ушло, но состояние не прочитано: {exc}"
+                ) from exc

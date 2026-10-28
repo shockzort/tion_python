@@ -126,3 +126,56 @@ export function Toggle({
     </div>
   )
 }
+
+/** Модальное окно-лист (снизу на телефоне, по центру на десктопе). */
+export function Dialog({
+  title,
+  onClose,
+  children,
+}: {
+  title: string
+  onClose: () => void
+  children: ReactNode
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-20 flex items-end justify-center bg-black/85 p-4 backdrop-blur-sm sm:items-center"
+      role="dialog"
+      aria-label={title}
+    >
+      <Card className="flex max-h-[85dvh] w-full max-w-md flex-col gap-3 overflow-y-auto bg-slate-900">
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="truncate text-lg font-medium">{title}</h2>
+          <button type="button" onClick={onClose} aria-label="закрыть" className="text-slate-400 hover:text-slate-200">
+            ✕
+          </button>
+        </div>
+        {children}
+      </Card>
+    </div>
+  )
+}
+
+/** Подраздел формы настроек. */
+export function Fieldset({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
+  return (
+    <fieldset className="flex flex-col gap-1 border-t border-slate-800 pt-3">
+      <legend className="pb-1 text-sm font-semibold text-slate-300">{title}</legend>
+      {hint && <p className="text-xs text-slate-500">{hint}</p>}
+      {children}
+    </fieldset>
+  )
+}
+
+/** Строка «подпись — контрол». */
+export function FieldRow({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-3 py-1 text-sm text-slate-200">
+      <span>{label}</span>
+      {children}
+    </div>
+  )
+}
+
+export const inputClass =
+  'rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-sm disabled:opacity-50'

@@ -1,7 +1,8 @@
 """Приборы Xiaomi: список из кэша и команды (docs/xiaomi.md).
 
 Список читается из памяти сервиса (сеть в запросном пути не трогается);
-команда синхронная — ответ несёт состояние, подтверждённое прибором.
+команда и действие синхронные — ответ несёт состояние, подтверждённое
+прибором. Настройки (экран, ночной режим, сушка…) — поля той же команды.
 """
 
 from __future__ import annotations
@@ -12,7 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from easy_breezy.api.deps import ContainerDep, require_user
-from easy_breezy.api.schemas import ApplianceCommand
+from easy_breezy.api.schemas import ApplianceAction, ApplianceCommand
 from easy_breezy.integrations.xiaomi.service import (
     ApplianceError,
     ApplianceNotFoundError,
@@ -48,6 +49,21 @@ async def command_appliance(
     try:
         snapshot = await container.appliances.command(
             appliance_id, body.to_delta(), source=CommandSource.UI
+        )
+    except ApplianceNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ApplianceError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return ApplianceView(**snapshot.to_dict())
+
+
+@router.post("/appliances/{appliance_id}/action")
+async def action_appliance(
+    appliance_id: str, body: ApplianceAction, container: ContainerDep
+) -> ApplianceView:
+    try:
+        snapshot = await container.appliances.action(
+            appliance_id, body.action, source=CommandSource.UI
         )
     except ApplianceNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

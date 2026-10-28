@@ -148,7 +148,7 @@ class MiioTransport:
             return
 
     async def _exchange(
-        self, datagrams: _Datagrams, method: str, params: list[Any]
+        self, datagrams: _Datagrams, method: str, params: list[Any] | dict[str, Any]
     ) -> Any:
         assert self._did is not None
         self._message_id += 1
@@ -171,7 +171,9 @@ class MiioTransport:
                 raise MiioDeviceError(f"{self._host}: {packet.payload['error']}")
             return packet.payload.get("result")
 
-    async def call(self, method: str, params: list[Any] | None = None) -> Any:
+    async def call(
+        self, method: str, params: list[Any] | dict[str, Any] | None = None
+    ) -> Any:
         """Запрос с одним повтором по таймауту; результат — поле ``result``."""
         async with self._lock:
             try:
@@ -180,7 +182,9 @@ class MiioTransport:
                 self.close()
                 raise MiioError(f"{self._host}: {exc}") from exc
 
-    async def _call_locked(self, method: str, params: list[Any]) -> Any:
+    async def _call_locked(
+        self, method: str, params: list[Any] | dict[str, Any]
+    ) -> Any:
         datagrams = await self._ensure_endpoint()
         for attempt in (1, 2):
             try:

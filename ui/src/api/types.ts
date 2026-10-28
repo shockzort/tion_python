@@ -206,7 +206,27 @@ export type ApplianceState = {
   screen: boolean
   sound: boolean
   child_lock: boolean
+  screen_brightness: ScreenBrightness
+  auto_dry: boolean
+  /** минут до конца сушки фильтра */
+  dry_remaining: number
+  overwet_protect: boolean
+  status: 'idle' | 'drying' | 'cleaning' | 'clean_interrupted' | 'clean_finished' | 'unknown'
+  /** минут до конца самоочистки */
+  clean_remaining: number
+  purifier_favorite_level: number
+  off_timer: boolean
+  off_timer_hours: number
+  /** минут до выключения по таймеру */
+  off_timer_remaining: number
+  night_mode: boolean
+  /** минуты от полуночи */
+  night_start: number
+  night_end: number
+  display_metric: 'pm25' | 'pm1' | 'pm10'
 }
+
+export type ScreenBrightness = 'auto' | 'bright' | 'medium' | 'dim'
 
 export type Appliance = {
   id: string
@@ -231,5 +251,48 @@ export type ApplianceCommand = Partial<
     | 'screen'
     | 'sound'
     | 'child_lock'
+    | 'screen_brightness'
+    | 'auto_dry'
+    | 'overwet_protect'
+    | 'purifier_favorite_level'
+    | 'off_timer'
+    | 'off_timer_hours'
+    | 'night_mode'
+    | 'night_start'
+    | 'night_end'
+    | 'display_metric'
   >
 >
+
+export type ApplianceAction =
+  | 'self_clean_start'
+  | 'self_clean_stop'
+  | 'dry_start'
+  | 'dry_stop'
+  | 'reset_purifier_filter'
+  | 'reset_humidifier_filter'
+
+// --- настройки Qingping на самом датчике ---------------------------------------
+
+export type QingpingScreensaver = 'rotate' | 'current' | 'time_rotate' | 'time_current'
+
+/** Настройки CGDN1 в единицах сервиса; поле, которого прошивка не прислала, — нет. */
+export type QingpingSettings = Partial<{
+  screensaver: QingpingScreensaver
+  display_off_time: number
+  auto_slide_time: number
+  power_off_time: number
+  night_start: number
+  night_end: number
+  temperature_unit: 'C' | 'F'
+  is_12_hour: boolean
+  timezone: number
+  co2_asc: boolean
+  temperature_offset: number
+  humidity_offset: number
+  co2_offset: number
+  pm25_offset: number
+  pm10_offset: number
+  co2_led_th: number[]
+  pm25_led_th: number[]
+}>

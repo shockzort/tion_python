@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import {
@@ -12,6 +13,7 @@ import {
   useSensors,
 } from '../api/queries'
 import ApplianceCard from '../components/ApplianceCard'
+import ApplianceSettings from '../components/ApplianceSettings'
 import DeviceCard from '../components/DeviceCard'
 import SensorCard from '../components/SensorCard'
 import { Button, Spinner } from '../components/ui'
@@ -26,6 +28,7 @@ export default function Dashboard() {
   const releaseHold = useReleaseHold()
   const appliances = useAppliances()
   const applianceCommand = useApplianceCommand()
+  const [settingsFor, setSettingsFor] = useState<string | null>(null)
 
   if (devices.isPending) {
     return <Spinner label="Загружаем устройства…" />
@@ -53,9 +56,13 @@ export default function Dashboard() {
     devices.data.filter((d) => d.connection === 'online').length +
     applianceList.filter((a) => a.online).length
   const total = devices.data.length + applianceList.length
-  // комната прибора — комната его встроенного датчика (xiaomi_miio:<did>)
-  const applianceRoom = (id: string) =>
-    (sensors.data ?? []).find((sensor) => sensor.source_key === `xiaomi_miio:${id}`)?.room_id ?? null
+  // встроенный датчик прибора (xiaomi_miio:<did>): его комната — комната
+  // прибора, а на главной он не дублируется отдельной карточкой — показания
+  // живут в карточке прибора (для автоматики и графиков датчик остаётся)
+  const applianceSensor = (id: string) =>
+    (sensors.data ?? []).find((sensor) => sensor.source_key === `xiaomi_miio:${id}`)
+  const applianceRoom = (id: string) => applianceSensor(id)?.room_id ?? null
+  const applianceSensorKeys = new Set(applianceList.map((appliance) => `xiaomi_miio:${appliance.id}`))
 
   // комнаты — главный разрез: датчик воздуха и бризеры одной комнаты рядом
   const groups = [
@@ -64,7 +71,9 @@ export default function Dashboard() {
   ]
     .map((group) => ({
       ...group,
-      sensors: (sensors.data ?? []).filter((sensor) => sensor.room_id === group.roomId),
+      sensors: (sensors.data ?? []).filter(
+        (sensor) => sensor.room_id === group.roomId && !applianceSensorKeys.has(sensor.source_key),
+      ),
       devices: devices.data.filter((device) => device.room_id === group.roomId),
       appliances: applianceList.filter((appliance) => applianceRoom(appliance.id) === group.roomId),
     }))
@@ -125,13 +134,18 @@ export default function Dashboard() {
                 <ApplianceCard
                   key={appliance.id}
                   appliance={appliance}
+                  sensor={applianceSensor(appliance.id)}
                   onCommand={(body) => applianceCommand.mutate({ id: appliance.id, body })}
+                  onOpenSettings={() => setSettingsFor(appliance.id)}
                 />
               ))}
             </div>
           )}
         </section>
       ))}
+      {settingsFor !== null && (
+        <ApplianceSettings applianceId={settingsFor} onClose={() => setSettingsFor(null)} />
+      )}
     </div>
   )
 }

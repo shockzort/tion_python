@@ -2,7 +2,7 @@
 
 import type { QueryClient } from '@tanstack/react-query'
 
-import { keys } from './api/queries'
+import { appliancePending, keys } from './api/queries'
 import type { Appliance, Connection, Device, DeviceState, WsEvent } from './api/types'
 
 /** Прогресс мастера сопряжения — отдельная шина для PairWizard. */
@@ -51,7 +51,7 @@ export function startEventBridge(queryClient: QueryClient): () => void {
   }
 }
 
-function handleEvent(queryClient: QueryClient, event: WsEvent) {
+export function handleEvent(queryClient: QueryClient, event: WsEvent) {
   switch (event.topic) {
     case 'device.state_changed': {
       const uuid = event.data.device_uuid as string
@@ -91,6 +91,9 @@ function handleEvent(queryClient: QueryClient, event: WsEvent) {
       break
     case 'appliance.state_changed': {
       const snapshot = event.data as unknown as Appliance
+      // команда в полёте: её ответ сам принесёт применённое состояние, а
+      // событие опроса откатило бы optimistic-патч (дребезг переключателей)
+      if (appliancePending(queryClient, snapshot.id) > 0) break
       queryClient.setQueryData<Appliance[]>(keys.appliances, (items) =>
         items?.map((item) => (item.id === snapshot.id ? snapshot : item)),
       )

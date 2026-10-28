@@ -5,8 +5,11 @@
 спецификация — home.miot-spec.com/spec/xiaomi.humidifier.ha2 и
 ``docs/protocol/xiaomi-miio.md`` §3.
 
-Модуль чистый: разбор ответа ``get_properties`` в состояние и сборка
-параметров ``set_properties`` из дельты.
+Модуль чистый: разбор ответа ``get_properties`` в состояние, сборка
+параметров ``set_properties`` из дельты и ``action`` для обслуживания.
+
+Ночной режим (9:6–9:8) в спецификации без названий: смысл выведен по
+значениям устройства (вкл, 1380 и 600 минут — 23:00–10:00).
 """
 
 from __future__ import annotations
@@ -33,6 +36,22 @@ FAN_LEVELS = (1, 2, 3)
 """Скорость в UI 1..3; на устройстве 0..2 (2:14 и 11:3)."""
 WATER_STATES = {-2: "no_tank", -1: "low", 0: "normal", 1: "full"}
 """9:11 — состояние воды в режиме увлажнения."""
+SCREEN_BRIGHTNESS = {"auto": 0, "bright": 1, "medium": 2, "dim": 3}
+"""5:2 — яркость экрана."""
+DISPLAY_METRICS = {"pm25": 0, "pm1": 1, "pm10": 2}
+"""9:21 — какой показатель частиц на экране."""
+STATUSES = {
+    0: "idle",
+    1: "drying",
+    2: "cleaning",
+    3: "clean_interrupted",
+    4: "clean_finished",
+}
+"""2:13 — служебное состояние: сушка, самоочистка."""
+FAVORITE_LEVEL_RANGE = (0, 9)
+"""10:1 — скорость избранного режима очистки."""
+OFF_TIMER_HOURS_RANGE = (1, 8)
+MINUTES_IN_DAY = 1440
 
 # имя поля состояния → (siid, piid)
 PROPS: dict[str, tuple[int, int]] = {
@@ -56,8 +75,43 @@ PROPS: dict[str, tuple[int, int]] = {
     "water_state": (9, 11),
     "purifier_fan_level": (11, 3),
     "purifier_mode": (11, 4),
+    # настройки и служебное
+    "screen_brightness": (5, 2),
+    "auto_dry": (2, 11),
+    "dry_remaining": (2, 12),
+    "overwet_protect": (2, 10),
+    "status": (2, 13),
+    "clean_remaining": (12, 3),
+    "purifier_favorite_level": (10, 1),
+    "off_timer": (13, 1),
+    "off_timer_hours": (13, 2),
+    "off_timer_remaining": (13, 3),
+    "night_mode": (9, 6),
+    "night_start": (9, 7),
+    "night_end": (9, 8),
+    "display_metric": (9, 21),
 }
 _BY_PAIR = {pair: name for name, pair in PROPS.items()}
+_BOOL_FIELDS = (
+    "power",
+    "screen",
+    "sound",
+    "child_lock",
+    "auto_dry",
+    "overwet_protect",
+    "off_timer",
+    "night_mode",
+)
+
+ACTIONS: dict[str, tuple[int, int]] = {
+    "self_clean_start": (12, 1),
+    "self_clean_stop": (12, 2),
+    "dry_start": (9, 7),
+    "dry_stop": (9, 8),
+    "reset_purifier_filter": (4, 1),
+    "reset_humidifier_filter": (15, 1),
+}
+"""Действия обслуживания → (siid, aiid) для метода ``action``."""
 
 
 def _name_of(table: dict[str, int], value: Any, field: str) -> str:
@@ -91,6 +145,24 @@ class Ha2State:
     screen: bool
     sound: bool
     child_lock: bool
+    screen_brightness: str
+    auto_dry: bool
+    dry_remaining: int
+    """Минут до конца сушки фильтра."""
+    overwet_protect: bool
+    status: str
+    clean_remaining: int
+    """Минут до конца самоочистки."""
+    purifier_favorite_level: int
+    off_timer: bool
+    off_timer_hours: int
+    off_timer_remaining: int
+    """Минут до выключения по таймеру."""
+    night_mode: bool
+    night_start: int
+    """Начало ночного режима, минуты от полуночи."""
+    night_end: int
+    display_metric: str
 
     def to_dict(self) -> dict[str, Any]:
         return dataclasses.asdict(self)
@@ -145,6 +217,24 @@ def parse_properties(result: list[Any]) -> Ha2State:
         screen=bool(raw["screen"]),
         sound=bool(raw["sound"]),
         child_lock=bool(raw["child_lock"]),
+        screen_brightness=_name_of(
+            SCREEN_BRIGHTNESS, raw["screen_brightness"], "screen_brightness"
+        ),
+        auto_dry=bool(raw["auto_dry"]),
+        dry_remaining=int(raw["dry_remaining"]),
+        overwet_protect=bool(raw["overwet_protect"]),
+        status=STATUSES.get(int(raw["status"]), "unknown"),
+        clean_remaining=int(raw["clean_remaining"]),
+        purifier_favorite_level=int(raw["purifier_favorite_level"]),
+        off_timer=bool(raw["off_timer"]),
+        off_timer_hours=int(raw["off_timer_hours"]),
+        off_timer_remaining=int(raw["off_timer_remaining"]),
+        night_mode=bool(raw["night_mode"]),
+        night_start=int(raw["night_start"]),
+        night_end=int(raw["night_end"]),
+        display_metric=_name_of(
+            DISPLAY_METRICS, raw["display_metric"], "display_metric"
+        ),
     )
 
 
@@ -162,6 +252,16 @@ class Ha2Delta:
     screen: bool | None = None
     sound: bool | None = None
     child_lock: bool | None = None
+    screen_brightness: str | None = None
+    auto_dry: bool | None = None
+    overwet_protect: bool | None = None
+    purifier_favorite_level: int | None = None
+    off_timer: bool | None = None
+    off_timer_hours: int | None = None
+    night_mode: bool | None = None
+    night_start: int | None = None
+    night_end: int | None = None
+    display_metric: str | None = None
 
     def is_empty(self) -> bool:
         return all(
@@ -187,7 +287,7 @@ class Ha2Delta:
         return delta
 
     def _validate(self) -> None:
-        for name in ("power", "screen", "sound", "child_lock"):
+        for name in _BOOL_FIELDS:
             value = getattr(self, name)
             if value is not None and not isinstance(value, bool):
                 raise ApplianceDeltaError(f"{name}: нужен bool")
@@ -195,6 +295,8 @@ class Ha2Delta:
             "function": FUNCTIONS,
             "humidifier_mode": HUMIDIFIER_MODES,
             "purifier_mode": PURIFIER_MODES,
+            "screen_brightness": SCREEN_BRIGHTNESS,
+            "display_metric": DISPLAY_METRICS,
         }
         for name, table in choices.items():
             value = getattr(self, name)
@@ -215,6 +317,20 @@ class Ha2Delta:
                 isinstance(value, bool) or value not in FAN_LEVELS
             ):
                 raise ApplianceDeltaError(f"{name}: одно из {list(FAN_LEVELS)}")
+        ranges = {
+            "purifier_favorite_level": FAVORITE_LEVEL_RANGE,
+            "off_timer_hours": OFF_TIMER_HOURS_RANGE,
+            "night_start": (0, MINUTES_IN_DAY - 1),
+            "night_end": (0, MINUTES_IN_DAY - 1),
+        }
+        for name, (low, high) in ranges.items():
+            value = getattr(self, name)
+            if value is not None and (
+                isinstance(value, bool)
+                or not isinstance(value, int)
+                or not low <= value <= high
+            ):
+                raise ApplianceDeltaError(f"{name}: целое {low}..{high}")
 
     def to_properties(self) -> list[dict[str, Any]]:
         """Параметры ``set_properties``; функция идёт первой — режимы зависят от неё."""
@@ -233,7 +349,26 @@ class Ha2Delta:
             values["humidifier_fan_level"] = self.humidifier_fan_level - 1
         if self.purifier_fan_level is not None:
             values["purifier_fan_level"] = self.purifier_fan_level - 1
-        for name in ("screen", "sound", "child_lock"):
+        if self.screen_brightness is not None:
+            values["screen_brightness"] = SCREEN_BRIGHTNESS[self.screen_brightness]
+        if self.display_metric is not None:
+            values["display_metric"] = DISPLAY_METRICS[self.display_metric]
+        # длительность таймера и часы ночного режима — до включения, иначе
+        # прибор стартует со старыми значениями
+        passthrough = (
+            "screen",
+            "sound",
+            "child_lock",
+            "auto_dry",
+            "overwet_protect",
+            "purifier_favorite_level",
+            "off_timer_hours",
+            "off_timer",
+            "night_start",
+            "night_end",
+            "night_mode",
+        )
+        for name in passthrough:
             if (value := getattr(self, name)) is not None:
                 values[name] = value
         return [
@@ -245,3 +380,11 @@ class Ha2Delta:
             }
             for name, value in values.items()
         ]
+
+
+def action_request(name: str) -> dict[str, Any]:
+    """Параметры метода ``action`` для действия обслуживания."""
+    if name not in ACTIONS:
+        raise ApplianceDeltaError(f"действие: одно из {sorted(ACTIONS)}")
+    siid, aiid = ACTIONS[name]
+    return {"did": name, "siid": siid, "aiid": aiid, "in": []}

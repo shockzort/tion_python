@@ -27,6 +27,7 @@ from easy_breezy.api.rest import (
     pairing,
     prefs,
     push,
+    sensor_settings,
     sensors,
     system,
     telemetry,
@@ -116,6 +117,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(pairing.router)
     app.include_router(automation.router)
     app.include_router(sensors.router)
+    app.include_router(sensor_settings.router)
     app.include_router(appliances.router)
     app.include_router(telemetry.router)
     app.include_router(prefs.router)

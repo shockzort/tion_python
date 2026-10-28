@@ -2,6 +2,7 @@
 import { useEffect } from 'react'
 
 import {
+  type QueryClient,
   useMutation,
   useQuery,
   useQueryClient,
@@ -10,6 +11,7 @@ import {
 import { api } from './client'
 import type {
   Appliance,
+  ApplianceAction,
   ApplianceCommand,
   AuthStatus,
   CommandBody,
@@ -19,6 +21,7 @@ import type {
   DiscoveredSensor,
   Group,
   GroupCommandResult,
+  QingpingSettings,
   Room,
   Scenario,
   ScenarioAction,
@@ -108,15 +111,37 @@ export function useAppliances() {
   })
 }
 
-/** Команда прибору: optimistic-патч, ответ — подтверждённое прибором состояние. */
+const APPLIANCE_MUTATION = 'appliance-command'
+
+/** Сколько команд/действий прибору ещё в полёте (для WS-моста и ответов). */
+export function appliancePending(queryClient: QueryClient, id: string): number {
+  return queryClient.isMutating({
+    mutationKey: [APPLIANCE_MUTATION],
+    predicate: (mutation) => (mutation.state.variables as { id?: string } | undefined)?.id === id,
+  })
+}
+
+function replaceAppliance(queryClient: QueryClient, result: Appliance) {
+  queryClient.setQueryData<Appliance[]>(keys.appliances, (items) =>
+    items?.map((item) => (item.id === result.id ? result : item)),
+  )
+}
+
+/**
+ * Команда прибору: optimistic-патч, ответ — подтверждённое прибором состояние.
+ *
+ * Против дребезга: пока по прибору летят команды, промежуточные ответы и
+ * WS-события не перетирают optimistic-состояние — применяется только ответ
+ * последней команды (сервер отвечает уже применённым прибором состоянием).
+ */
 export function useApplianceCommand() {
   const queryClient = useQueryClient()
   return useMutation({
+    mutationKey: [APPLIANCE_MUTATION],
     mutationFn: ({ id, body }: { id: string; body: ApplianceCommand }) =>
       api<Appliance>(`/api/appliances/${id}/command`, { method: 'POST', json: body }),
     onMutate: async ({ id, body }) => {
       await queryClient.cancelQueries({ queryKey: keys.appliances })
-      const previous = queryClient.getQueryData<Appliance[]>(keys.appliances)
       queryClient.setQueryData<Appliance[]>(keys.appliances, (items) =>
         items?.map((item) =>
           item.id === id && item.state !== null
@@ -124,17 +149,26 @@ export function useApplianceCommand() {
             : item,
         ),
       )
-      return { previous }
     },
-    onError: (_error, _vars, context) => {
-      if (context?.previous) {
-        queryClient.setQueryData(keys.appliances, context.previous)
-      }
-    },
+    onError: () => queryClient.invalidateQueries({ queryKey: keys.appliances }),
     onSuccess: (result) => {
-      queryClient.setQueryData<Appliance[]>(keys.appliances, (items) =>
-        items?.map((item) => (item.id === result.id ? result : item)),
-      )
+      // своя мутация ещё числится в полёте — значит, есть и другие
+      if (appliancePending(queryClient, result.id) > 1) return
+      replaceAppliance(queryClient, result)
+    },
+  })
+}
+
+/** Действие обслуживания прибора (самоочистка, сушка, сброс фильтра). */
+export function useApplianceAction() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationKey: [APPLIANCE_MUTATION],
+    mutationFn: ({ id, action }: { id: string; action: ApplianceAction }) =>
+      api<Appliance>(`/api/appliances/${id}/action`, { method: 'POST', json: { action } }),
+    onSuccess: (result) => {
+      if (appliancePending(queryClient, result.id) > 1) return
+      replaceAppliance(queryClient, result)
     },
   })
 }
@@ -447,6 +481,26 @@ export function useUpdateSensor() {
     mutationFn: ({ id, body }: { id: number; body: { name?: string; room_id?: number | null } }) =>
       api<Sensor>(`/api/sensors/${id}`, { method: 'PATCH', json: body }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.sensors }),
+  })
+}
+
+/** Настройки на самом датчике (Qingping): читаются с устройства, до 10 с. */
+export function useSensorSettings(id: number) {
+  return useQuery({
+    queryKey: ['sensor-settings', id],
+    queryFn: () => api<{ settings: QingpingSettings }>(`/api/sensors/${id}/settings`),
+    staleTime: 0,
+    gcTime: 0,
+    retry: false,
+  })
+}
+
+export function useSaveSensorSettings() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, body }: { id: number; body: QingpingSettings }) =>
+      api<{ settings: QingpingSettings }>(`/api/sensors/${id}/settings`, { method: 'PUT', json: body }),
+    onSuccess: (result, { id }) => queryClient.setQueryData(['sensor-settings', id], result),
   })
 }
 

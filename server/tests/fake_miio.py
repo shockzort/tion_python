@@ -43,8 +43,23 @@ HA2_VALUES: dict[tuple[int, int], Any] = {
     (9, 11): 0,
     (11, 3): 0,
     (11, 4): 3,
+    # настройки — прочитаны 2026-10-28
+    (5, 2): 0,
+    (2, 11): True,
+    (2, 12): 0,
+    (2, 10): False,
+    (2, 13): 0,
+    (12, 3): 0,
+    (10, 1): 9,
+    (13, 1): False,
+    (13, 2): 1,
+    (13, 3): 0,
+    (9, 6): True,
+    (9, 7): 1380,
+    (9, 8): 600,
+    (9, 21): 0,
 }
-"""Значения с устройства владельца (2026-10-27) по карте ``ha2.PROPS``."""
+"""Значения с устройства владельца (2026-10-27/28) по карте ``ha2.PROPS``."""
 assert set(HA2_VALUES) == set(ha2.PROPS.values())
 
 
@@ -62,6 +77,11 @@ class FakeMiioDevice:
     """Свойства, запись которых отвечает code=-4004."""
     requests: list[dict[str, Any]] = field(default_factory=list)
     hellos: int = 0
+    apply_lag: int = 0
+    """Сколько ``get_properties`` после записи ещё видят старые значения."""
+    actions: list[tuple[int, int]] = field(default_factory=list)
+    _pending: dict[tuple[int, int], Any] = field(default_factory=dict)
+    _lag_left: int = 0
 
     def handle(self, data: bytes) -> bytes | None:
         if data == HELLO:
@@ -80,13 +100,24 @@ class FakeMiioDevice:
         body = json.dumps({"id": payload["id"], **result}).encode()
         return encode_request(self.key, did=self.did, stamp=self.stamp, plain=body)
 
-    def _dispatch(self, method: str, params: list[Any]) -> dict[str, Any] | None:
+    def _dispatch(self, method: str, params: Any) -> dict[str, Any] | None:
         if method == "get_properties":
             if len(params) > self.max_props:
                 return None
+            if self._lag_left > 0:
+                self._lag_left -= 1
+            else:
+                self.values.update(self._pending)
+                self._pending.clear()
             return {"result": [self._get(item) for item in params]}
         if method == "set_properties":
-            return {"result": [self._set(item) for item in params]}
+            result = [self._set(item) for item in params]
+            self._lag_left = self.apply_lag
+            return {"result": result}
+        if method == "action":
+            pair = (params["siid"], params["aiid"])
+            self.actions.append(pair)
+            return {"result": {**params, "code": 0, "out": []}}
         return {"error": {"code": -9999, "message": "user ack timeout"}}
 
     def _get(self, item: dict[str, Any]) -> dict[str, Any]:
@@ -99,7 +130,7 @@ class FakeMiioDevice:
         pair = (item["siid"], item["piid"])
         if pair in self.reject:
             return {"did": item["did"], "siid": pair[0], "piid": pair[1], "code": -4004}
-        self.values[pair] = item["value"]
+        self._pending[pair] = item["value"]
         return {"did": item["did"], "siid": pair[0], "piid": pair[1], "code": 0}
 
 

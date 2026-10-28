@@ -14,6 +14,11 @@
   подтверждения ``type=18``; принимается последняя точка — более старые
   не подтверждают свежесть (FR-25).
 
+Настройки (экран, ночной режим, поправки): чтение — ``{"type":"28"}`` в
+``down``, запись — ``type=17`` с ``setting``; датчик отвечает ``type=28``
+с действующим конфигом (иногда только ``type=18``-подтверждением — тогда
+конфиг дочитывается). Пересчёт единиц — ``qingping.settings``.
+
 Режим реального времени (``type=12`` в ``.../down``) действует не дольше
 часа: сервис шлёт запрос зарегистрированным датчикам при подключении,
 продлевает по таймеру и повторяет сразу, если датчик жив (heartbeat), а
@@ -54,6 +59,8 @@ RENEW_EVERY = 1800
 NUDGE_AFTER = 180
 """Heartbeat есть, показаний нет дольше — повторить запрос немедленно."""
 DISCOVERY_WINDOW = 600
+SETTINGS_TIMEOUT = 10.0
+"""Ожидание ответа датчика на чтение/запись настроек, с."""
 """Поиск показывает датчики, слышанные за последние 10 минут."""
 _BACKOFF_INITIAL = 1.0
 _BACKOFF_MAX = 60.0
@@ -85,6 +92,9 @@ class QingpingMessage:
     """Время измерения по часам датчика (``sensorData[].timestamp``)."""
     message_id: int | None = None
     need_ack: bool = False
+    setting: dict[str, Any] | None = None
+    """Конфиг датчика из ``type=28``."""
+    ack_id: int | None = None
 
 
 def parse_message(topic: str, payload: bytes) -> QingpingMessage | None:
@@ -114,6 +124,8 @@ def parse_message(topic: str, payload: bytes) -> QingpingMessage | None:
             metrics = _entry_metrics(latest)
             observed_at = _entry_time(latest) or None
     message_id = data.get("id")
+    setting = data.get("setting")
+    ack_id = data.get("ack_id")
     return QingpingMessage(
         source_key=key,
         type=kind,
@@ -123,6 +135,8 @@ def parse_message(topic: str, payload: bytes) -> QingpingMessage | None:
         observed_at=observed_at,
         message_id=message_id if isinstance(message_id, int) else None,
         need_ack=bool(data.get("need_ack")),
+        setting=setting if kind == "28" and isinstance(setting, dict) else None,
+        ack_id=ack_id if isinstance(ack_id, int) else None,
     )
 
 
@@ -191,6 +205,27 @@ def history_ack(message_id: int, now: float) -> bytes:
     ).encode()
 
 
+def settings_request() -> bytes:
+    """Запрос действующего конфига (ответ — ``type=28``)."""
+    return json.dumps({"type": "28"}).encode()
+
+
+def settings_command(setting: dict[str, Any], now: float) -> bytes:
+    """Запись настроек ``type=17``; ``id`` — время, как в примерах протокола."""
+    return json.dumps(
+        {
+            "id": int(now),
+            "type": "17",
+            "timestamp": int(now),
+            "setting": setting,
+        }
+    ).encode()
+
+
+class QingpingSettingsError(Exception):
+    """Настройки датчика не прочитаны или не записаны."""
+
+
 def realtime_request(interval: int) -> bytes:
     """Команда «показания каждые ``interval`` секунд в течение часа»."""
     return json.dumps(
@@ -215,8 +250,10 @@ class QingpingMqttListener:
         interval: int = 60,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         now: Callable[[], float] = time.time,
+        settings_timeout: float = SETTINGS_TIMEOUT,
     ) -> None:
         self._db = db
+        self._settings_timeout = settings_timeout
         self._ingest = ingest
         self._events = events
         self._url = url
@@ -230,6 +267,9 @@ class QingpingMqttListener:
         self._last_data: dict[str, float] = {}
         self._last_request: dict[str, float] = {}
         self._client: aiomqtt.Client | None = None
+        self._settings: dict[str, dict[str, Any]] = {}
+        self._settings_waiters: dict[str, list[asyncio.Future[QingpingMessage]]] = {}
+        self._settings_locks: dict[str, asyncio.Lock] = {}
         self.connected = False
 
     @property
@@ -311,6 +351,8 @@ class QingpingMqttListener:
             return
         now = self._now()
         key = message.source_key
+        if message.setting is not None or message.type == "18":
+            self._settings_reply(key, message)
         if message.type == "10":
             await self._publish(key, bind_reply(now))
         elif message.type == "17" and message.need_ack and message.message_id:
@@ -347,6 +389,53 @@ class QingpingMqttListener:
         ):
             # жив (heartbeat), но молчит: запрос реального времени истёк
             await self._request(key)
+
+    def _settings_reply(self, key: str, message: QingpingMessage) -> None:
+        if message.setting is not None:
+            # ответ на запись бывает частичным — сливаем с известным конфигом
+            self._settings[key] = {**self._settings.get(key, {}), **message.setting}
+        for waiter in self._settings_waiters.pop(key, []):
+            if not waiter.done():
+                waiter.set_result(message)
+
+    async def _settings_exchange(self, key: str, payload: bytes) -> QingpingMessage:
+        timeout = self._settings_timeout
+        if self._client is None:
+            raise QingpingSettingsError("нет связи с брокером MQTT")
+        waiter: asyncio.Future[QingpingMessage] = (
+            asyncio.get_running_loop().create_future()
+        )
+        self._settings_waiters.setdefault(key, []).append(waiter)
+        try:
+            await self._publish(key, payload)
+            return await asyncio.wait_for(waiter, timeout)
+        except TimeoutError as exc:
+            raise QingpingSettingsError(
+                f"датчик не ответил за {timeout:g} с — он в сети?"
+            ) from exc
+        except aiomqtt.MqttError as exc:
+            raise QingpingSettingsError(f"брокер MQTT: {exc}") from exc
+        finally:
+            waiters = self._settings_waiters.get(key, [])
+            if waiter in waiters:
+                waiters.remove(waiter)
+
+    async def read_settings(self, key: str) -> dict[str, Any]:
+        """Действующий конфиг датчика (ключи и единицы протокола)."""
+        async with self._settings_locks.setdefault(key, asyncio.Lock()):
+            await self._settings_exchange(key, settings_request())
+            return dict(self._settings.get(key, {}))
+
+    async def write_settings(self, key: str, setting: dict[str, Any]) -> dict[str, Any]:
+        """Записывает ``setting`` и возвращает конфиг, подтверждённый датчиком."""
+        log.info("qingping_settings_write", source_key=key, setting=setting)
+        async with self._settings_locks.setdefault(key, asyncio.Lock()):
+            reply = await self._settings_exchange(
+                key, settings_command(setting, self._now())
+            )
+            if reply.setting is None:  # только подтверждение — дочитать
+                await self._settings_exchange(key, settings_request())
+            return dict(self._settings.get(key, {}))
 
     async def _publish(self, key: str, payload: bytes) -> None:
         if self._client is not None:

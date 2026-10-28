@@ -16,8 +16,10 @@ import {
   useUpdateDevice,
   useUpdateSensor,
 } from '../api/queries'
-import type { Device, Group } from '../api/types'
+import type { Device, Group, Sensor } from '../api/types'
 import AddSensorWizard, { MetricChips } from '../components/AddSensorWizard'
+import ApplianceSettings from '../components/ApplianceSettings'
+import QingpingSettings from '../components/QingpingSettings'
 import PairWizard from '../components/PairWizard'
 import FilterReset from '../components/FilterReset'
 import { Badge, Button, Card, Spinner } from '../components/ui'
@@ -60,6 +62,14 @@ export default function Devices() {
   )
 }
 
+const KIND_QINGPING_MQTT = 'qingping_mqtt'
+const KIND_XIAOMI_MIIO = 'xiaomi_miio'
+
+/** Настройки на самом устройстве: Qingping по MQTT и приборы Xiaomi. */
+function hasDeviceSettings(sensor: Sensor): boolean {
+  return sensor.kind === KIND_QINGPING_MQTT || sensor.kind === KIND_XIAOMI_MIIO
+}
+
 function SensorsSection() {
   const sensors = useSensors()
   const providers = useSensorProviders()
@@ -67,6 +77,7 @@ function SensorsSection() {
   const deleteSensor = useDeleteSensor()
   const rooms = useRooms()
   const [wizardOpen, setWizardOpen] = useState(false)
+  const [settingsFor, setSettingsFor] = useState<Sensor | null>(null)
 
   const rename = (id: number, current: string) => {
     const next = prompt('Новое имя датчика', current)
@@ -121,7 +132,12 @@ function SensorsSection() {
                 </option>
               ))}
             </select>
-            <div className="flex shrink-0 gap-2">
+            <div className="flex shrink-0 flex-wrap gap-2">
+              {hasDeviceSettings(sensor) && (
+                <Button variant="ghost" onClick={() => setSettingsFor(sensor)}>
+                  Настроить
+                </Button>
+              )}
               <Button variant="ghost" onClick={() => rename(sensor.id, sensor.name)}>
                 Имя
               </Button>
@@ -141,6 +157,15 @@ function SensorsSection() {
         </div>
       ))}
       {wizardOpen && <AddSensorWizard onClose={() => setWizardOpen(false)} />}
+      {settingsFor?.kind === KIND_QINGPING_MQTT && (
+        <QingpingSettings sensorId={settingsFor.id} name={settingsFor.name} onClose={() => setSettingsFor(null)} />
+      )}
+      {settingsFor?.kind === KIND_XIAOMI_MIIO && (
+        <ApplianceSettings
+          applianceId={settingsFor.source_key.slice(`${KIND_XIAOMI_MIIO}:`.length)}
+          onClose={() => setSettingsFor(null)}
+        />
+      )}
     </Card>
   )
 }

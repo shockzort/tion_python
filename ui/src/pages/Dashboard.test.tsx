@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { appliance, applianceSensor } from '../components/applianceFixture'
 import Dashboard from './Dashboard'
 
 const json = (body: unknown) =>
@@ -58,5 +59,21 @@ describe('Dashboard', () => {
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith('/api/scenarios/3/run', expect.objectContaining({ method: 'POST' })),
     )
+  })
+
+  it('прибор с датчиком — одна карточка: датчик не дублируется', async () => {
+    const otherSensor = { ...applianceSensor, id: 4, kind: 'qingping_mqtt', name: 'Станция', source_key: 'qingping_mqtt:EC' }
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input)
+      if (url.startsWith('/api/devices')) return json([device('a', 'online')])
+      if (url.startsWith('/api/appliances')) return json([appliance])
+      if (url.startsWith('/api/sensors')) return json([applianceSensor, otherSensor])
+      return json([])
+    })
+    renderDashboard()
+    await screen.findByText('Станция')
+    // «Хлюпик» один — карточка прибора, а не ещё и карточка датчика
+    await waitFor(() => expect(screen.getAllByText('Хлюпик')).toHaveLength(1))
+    expect(screen.getByText('Увлажнитель-очиститель')).toBeInTheDocument()
   })
 })

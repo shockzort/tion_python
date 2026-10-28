@@ -163,7 +163,7 @@ async def test_transport_hello_then_call() -> None:
     assert len(result) == 10
     assert device.hellos == 1
     assert transport.did == device.did
-    await transport.call("get_properties", ha2.property_request()[10:])
+    await transport.call("get_properties", ha2.property_request()[10:20])
     assert device.hellos == 1  # сессия живёт — повторный hello не нужен
     ids = [request["id"] for request in device.requests]
     assert ids == sorted(set(ids))

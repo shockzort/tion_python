@@ -6,12 +6,13 @@ import asyncio
 from typing import Any
 
 import pytest
+import structlog
 
 from easy_breezy.automation.scenarios import ScenarioService
 from easy_breezy.config import XiaomiDeviceConfig
 from easy_breezy.core.events import TOPIC_APPLIANCE_STATE_CHANGED, EventBus
 from easy_breezy.core.sensors import KIND_XIAOMI_MIIO, SensorIngest
-from easy_breezy.integrations.xiaomi.ha2 import Ha2Delta
+from easy_breezy.integrations.xiaomi.ha2 import ApplianceDeltaError, Ha2Delta
 from easy_breezy.integrations.xiaomi.service import (
     ApplianceError,
     ApplianceNotFoundError,
@@ -54,6 +55,7 @@ def _service(
         [_config()],
         transport_factory=lambda _config: fake_transport(device),
         now=clock or Clock(),
+        settle_delay=0,
     )
 
 
@@ -122,6 +124,121 @@ async def test_command_applies_and_confirms(db: Database) -> None:
     assert snapshot.state is not None
     assert snapshot.state.target_humidity == 60
     assert snapshot.state.humidifier_mode == "constant"
+
+
+async def test_command_waits_until_device_applies(db: Database) -> None:
+    # прибор применяет запись не сразу: первый полный опрос (4 запроса) ещё
+    # видит старый режим — ответ команды не должен его вернуть
+    device = FakeMiioDevice(apply_lag=4)
+    service = _service(db, EventBus(), device)
+    await service.refresh(APPLIANCE_ID)
+    snapshot = await service.command(
+        APPLIANCE_ID, Ha2Delta(humidifier_mode="sleep"), source="ui"
+    )
+    assert snapshot.state is not None
+    assert snapshot.state.humidifier_mode == "sleep"
+
+
+async def test_poll_does_not_interleave_with_command(db: Database) -> None:
+    # опрос и команда под одним замком: в кэш не попадает смесь состояний
+    events = EventBus()
+    device = FakeMiioDevice()
+    service = _service(db, events, device)
+    await service.refresh(APPLIANCE_ID)
+    with events.subscribe(TOPIC_APPLIANCE_STATE_CHANGED) as sub:
+        await asyncio.gather(
+            service.refresh(APPLIANCE_ID),
+            service.command(
+                # поля из первой и последней пачки опроса
+                APPLIANCE_ID,
+                Ha2Delta(power=False, screen_brightness="dim"),
+                source="ui",
+            ),
+            service.refresh(APPLIANCE_ID),
+        )
+        states = []
+        while True:
+            try:
+                event = await asyncio.wait_for(sub.get(), 0.05)
+            except TimeoutError:
+                break
+            states.append(event.data["state"])
+    assert states, "команда должна опубликовать новое состояние"
+    # ни одного «полуприменённого» состояния
+    assert all(
+        (state["power"], state["screen_brightness"]) == (False, "dim")
+        for state in states
+    )
+
+
+async def test_config_fields_round_trip(db: Database) -> None:
+    device = FakeMiioDevice()
+    service = _service(db, EventBus(), device)
+    snapshot = await service.refresh(APPLIANCE_ID)
+    assert snapshot.state is not None
+    assert snapshot.state.night_mode is True
+    assert (snapshot.state.night_start, snapshot.state.night_end) == (1380, 600)
+    assert snapshot.state.screen_brightness == "auto"
+    snapshot = await service.command(
+        APPLIANCE_ID,
+        Ha2Delta(
+            screen_brightness="dim",
+            night_start=1320,
+            night_end=420,
+            off_timer_hours=3,
+            off_timer=True,
+            display_metric="pm10",
+        ),
+        source="ui",
+    )
+    assert device.values[(5, 2)] == 3
+    assert device.values[(9, 7)] == 1320
+    assert device.values[(9, 21)] == 2
+    assert snapshot.state is not None and snapshot.state.off_timer_hours == 3
+    # длительность таймера пишется раньше включения
+    sets = [r for r in device.requests if r["method"] == "set_properties"][-1]
+    pairs = [(p["siid"], p["piid"]) for p in sets["params"]]
+    assert pairs.index((13, 2)) < pairs.index((13, 1))
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"night_start": 1440},
+        {"purifier_favorite_level": 10},
+        {"off_timer_hours": 0},
+        {"screen_brightness": "max"},
+        {"display_metric": "co2"},
+        {"night_mode": 1},
+    ],
+)
+def test_delta_rejects_bad_config(payload: dict[str, Any]) -> None:
+    with pytest.raises(ApplianceDeltaError):
+        Ha2Delta.from_payload(payload)
+
+
+async def test_action_calls_device(db: Database) -> None:
+    device = FakeMiioDevice()
+    service = _service(db, EventBus(), device)
+    snapshot = await service.action(APPLIANCE_ID, "self_clean_start", source="ui")
+    assert device.actions == [(12, 1)]
+    assert snapshot.online
+    with pytest.raises(ApplianceError, match="действие"):
+        await service.action(APPLIANCE_ID, "explode", source="ui")
+
+
+async def test_unreachable_from_start_is_logged(
+    db: Database, caplog: pytest.LogCaptureFixture
+) -> None:
+    device = FakeMiioDevice(drop=100)
+    service = _service(db, EventBus(), device)
+    with structlog.testing.capture_logs() as logs:
+        for _ in range(2):
+            with pytest.raises(Exception, match="нет ответа"):
+                await service.refresh(APPLIANCE_ID)
+    events = [entry["event"] for entry in logs]
+    # с самого старта — тоже предупреждение, но одно, а не на каждый опрос
+    assert events.count("appliance_unreachable") == 1
 
 
 async def test_command_rejected_property(db: Database) -> None:
@@ -213,6 +330,27 @@ def test_api_list_and_command(appliance_client: Any) -> None:
     )
     assert (
         client.post("/api/appliances/1/command", json={"power": True}).status_code
+        == 404
+    )
+
+
+def test_api_config_and_action(appliance_client: Any) -> None:
+    client, _app, device = appliance_client
+    base = f"/api/appliances/{APPLIANCE_ID}"
+    response = client.post(
+        f"{base}/command", json={"night_mode": False, "screen_brightness": "medium"}
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["state"]["night_mode"] is False
+    assert device.values[(5, 2)] == 2
+    assert client.post(f"{base}/command", json={"night_end": 2000}).status_code == 422
+
+    response = client.post(f"{base}/action", json={"action": "reset_humidifier_filter"})
+    assert response.status_code == 200, response.text
+    assert device.actions == [(15, 1)]
+    assert client.post(f"{base}/action", json={"action": "boom"}).status_code == 422
+    assert (
+        client.post("/api/appliances/1/action", json={"action": "dry_stop"}).status_code
         == 404
     )
 
