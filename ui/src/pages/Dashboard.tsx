@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import {
@@ -13,7 +12,6 @@ import {
   useSensors,
 } from '../api/queries'
 import ApplianceCard from '../components/ApplianceCard'
-import ApplianceSettings from '../components/ApplianceSettings'
 import DeviceCard from '../components/DeviceCard'
 import SensorCard from '../components/SensorCard'
 import { Button, Spinner } from '../components/ui'
@@ -28,7 +26,6 @@ export default function Dashboard() {
   const releaseHold = useReleaseHold()
   const appliances = useAppliances()
   const applianceCommand = useApplianceCommand()
-  const [settingsFor, setSettingsFor] = useState<string | null>(null)
 
   if (devices.isPending) {
     return <Spinner label="Загружаем устройства…" />
@@ -136,16 +133,12 @@ export default function Dashboard() {
                   appliance={appliance}
                   sensor={applianceSensor(appliance.id)}
                   onCommand={(body) => applianceCommand.mutate({ id: appliance.id, body })}
-                  onOpenSettings={() => setSettingsFor(appliance.id)}
                 />
               ))}
             </div>
           )}
         </section>
       ))}
-      {settingsFor !== null && (
-        <ApplianceSettings applianceId={settingsFor} onClose={() => setSettingsFor(null)} />
-      )}
     </div>
   )
 }

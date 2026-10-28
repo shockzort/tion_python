@@ -1,6 +1,6 @@
 // Карточка прибора Xiaomi (увлажнитель-очиститель) — презентационная.
 // Свёрнута: показания как у датчика + режим одной строкой; развёрнута —
-// ручное управление. Редкие настройки (экран, звук, ночь…) — в диалоге.
+// ручное управление. Редкие настройки (экран, звук, ночь…) — в Устройствах.
 
 import type {
   Appliance,
@@ -24,7 +24,6 @@ export type ApplianceCardProps = {
   /** встроенный датчик прибора (xiaomi_miio:<id>) — для строки показаний */
   sensor?: Sensor
   onCommand: (body: ApplianceCommand) => void
-  onOpenSettings?: () => void
 }
 
 const TARGET_MIN = 40
@@ -71,7 +70,6 @@ export default function ApplianceCard({
   appliance,
   sensor,
   onCommand,
-  onOpenSettings,
 }: ApplianceCardProps) {
   const { state } = appliance
   const enabled = appliance.online && state !== null
@@ -230,15 +228,6 @@ export default function ApplianceCard({
               фильтр очистки {state.purifier_filter_life}%
             </span>
           </footer>
-          {onOpenSettings && (
-            <button
-              type="button"
-              onClick={onOpenSettings}
-              className="mt-2 text-xs text-slate-400 underline-offset-2 hover:text-slate-200 hover:underline"
-            >
-              Настройки прибора…
-            </button>
-          )}
         </div>
       )}
     </Card>

@@ -19,6 +19,9 @@ describe('ApplianceCard', () => {
     expect(screen.getByText('55%')).toBeInTheDocument()
     expect(screen.getByText(/48% · 24°C · PM2\.5 3/)).toBeInTheDocument()
     expect(screen.getByText('фильтр увлажнения 8%')).toHaveClass('text-rose-400')
+    // редкие настройки — только в Устройствах, карточку не перегружаем
+    expect(screen.queryByText(/Настройки/)).toBeNull()
+    expect(screen.queryByRole('switch', { name: 'Экран' })).toBeNull()
   })
 
   it('шагает целевую влажность по 5 % и меняет функцию', () => {
@@ -84,12 +87,5 @@ describe('ApplianceCard', () => {
     expect(document.querySelector('[data-metric="humidity"]')).toHaveTextContent('52')
     expect(screen.getByText('Увлажнение · цель 55% · вода 75%')).toBeInTheDocument()
     expect(screen.queryByRole('switch')).toBeNull()
-  })
-
-  it('настройки открываются из развёрнутой карточки', () => {
-    const onOpenSettings = vi.fn()
-    render(<ApplianceCard appliance={appliance} onCommand={vi.fn()} onOpenSettings={onOpenSettings} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Настройки прибора…' }))
-    expect(onOpenSettings).toHaveBeenCalled()
   })
 })
