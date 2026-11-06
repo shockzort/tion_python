@@ -1,0 +1,8 @@
+# vps_base: вход только по ключу; root — только по ключу; пароль и keyboard-interactive выключены.
+Port {{ vps_base_ssh_port }}
+PubkeyAuthentication yes
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitRootLogin prohibit-password
+AuthenticationMethods publickey
+ExposeAuthInfo yes

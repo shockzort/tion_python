@@ -1,0 +1,7 @@
+bindPort = {{ vps_base_frps_bind_port }}
+proxyBindAddr = "127.0.0.1"
+allowPorts = [{% for p in vps_base_frps_allow %}{ single = {{ p }} }{{ ', ' if not loop.last else '' }}{% endfor %}]
+
+[auth]
+method = "token"
+token = "{{ vps_base_frps_token }}"

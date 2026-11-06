@@ -1,0 +1,10 @@
+- name: Проверить и перечитать sshd
+  ansible.builtin.shell: sshd -t && systemctl reload ssh
+  listen: reload sshd
+
+- name: Перезапустить frps
+  ansible.builtin.systemd_service:
+    name: frps
+    state: restarted
+    daemon_reload: true
+  listen: restart frps

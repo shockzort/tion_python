@@ -167,3 +167,37 @@ curl --resolve easy-breezy.duckdns.org:443:<IP NUC> \
 
 BLE: контейнер в host-сети с монтированием `/var/run/dbus` — работает
 через BlueZ хоста; бонды бризеров живут на хосте (сопрягать после переезда).
+
+## Общий слой VPS (`vps.yml`, роль `vps_base`)
+
+На VPS (Senko) живут easy-breezy, hmd (`home-media-dl-automation`) и workspace-management. Общее — sshd,
+UFW, автообновления, frps — ведёт роль `vps_base`; она одинакова во всех трёх репозиториях (копия как есть,
+источник — `home-media-dl-automation/deploy/ansible/roles/vps_base`). Принцип — **только добавлять**:
+
+- каждое приложение кладёт регистрацию в `/etc/vps-base/apps/<имя>.json` (порты UFW и frps);
+- роль открывает объединение всех регистраций и того, что уже стоит; чужое не удаляет, токен frps
+  сохраняет, `allowPorts` только растёт;
+- жёсткость sshd проверяется по `sshd -T`; drop-in `00-easy-breezy.conf` ведёт этот репозиторий
+  (`vps_base_ssh_dropin`), hmd и workspace-management его только проверяют.
+
+```bash
+# бэкап того, что трогает роль
+ssh private-senko 'umask 077; tar czf /root/backup-before-vps-base-$(date +%Y%m%d-%H%M%S).tgz \
+  /etc/ssh/sshd_config.d /etc/frp /etc/systemd/system/frps.service /etc/ufw /etc/vps-base'
+make vps-check   # что изменится
+make vps         # применить — один прогон (у VPS одно ядро; лишние прогоны заметно грузят VPN)
+```
+
+Применено 2026-11-06: регистрация `easy-breezy.json` (UFW 80/443/7000, frps 18000) и в `00-easy-breezy.conf` —
+шапка роли и `ExposeAuthInfo yes` (её же пишет `deploy/vps/restore.py`). **34666/udp не регистрировать**:
+ru-exit (разворот через NUC) отвергнут 2026-11-05, его остатки, включая это правило UFW, убирает
+workspace-management (роль `senko_legacy`) — роль `vps_base` только добавляет и вернула бы порт при каждом
+прогоне. Порт в первом применении был — правило удалено, UFW сверен с бэкапом до применения.
+
+**Сверить с `deploy/vps` (capture/restore).** Снимок от 2026-10-08 знает только frps-порт 18000 и не
+знает hmd: восстановление им без правки потеряло бы 18001 (hmd) и 18022, nginx/fail2ban hmd, пользователя
+`hmd-proxy` и ключ выдачи сертификата. После восстановления «голого» VPS стоит прогнать `make vps`
+здесь, `bin/hmd-ansible site.yml -l vps` в hmd и `vps.yml` в workspace-management (18022 — обратный SSH к
+NUC, роль `nuc_ssh_tunnel`) — регистрации вернут свои порты. Amnezia в UFW
+открыта только для IPv6 (IPv4 публикует Docker) — поэтому в регистрации её нет.
+

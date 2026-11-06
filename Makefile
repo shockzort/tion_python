@@ -1,5 +1,5 @@
 # Easy Breezy — команды разработки и развёртывания
-.PHONY: dev dev-ui test lint fmt build-ui apk run clean release deploy provision
+.PHONY: dev dev-ui test lint fmt build-ui apk run clean release deploy provision vps vps-check
 
 # Запуск сервера разработки (http://localhost:8000)
 dev:
@@ -69,3 +69,10 @@ run:
 clean:
 	rm -rf server/.venv server/.mypy_cache server/.ruff_cache server/.pytest_cache \
 		ui/node_modules ui/dist
+
+# Общий слой VPS (deploy/ansible/vps.yml, роль vps_base — общая с hmd): сначала vps-check.
+vps-check:
+	ansible-playbook -i deploy/ansible/inventory.yml deploy/ansible/vps.yml --check --diff
+
+vps:
+	ansible-playbook -i deploy/ansible/inventory.yml deploy/ansible/vps.yml

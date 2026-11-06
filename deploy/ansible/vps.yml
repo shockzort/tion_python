@@ -1,0 +1,27 @@
+# Общий слой VPS (роль vps_base) — тот же, что в home-media-dl-automation (hmd), копия как есть.
+#   make vps-check   — что изменится, ничего не меняя (начинать всегда с этого)
+#   make vps         — применить (перед этим — бэкап на VPS, см. README «Общий слой VPS»)
+#
+# На одном VPS живут easy-breezy, hmd и workspace-management. Каждое приложение кладёт свою регистрацию в
+# /etc/vps-base/apps/<имя>.json; роль открывает в UFW и frps объединение всех регистраций и
+# того, что уже стоит на хосте, — чужое не удаляется. Хост — группа backup_vps (тот же сервер).
+---
+- name: VPS — общий слой и регистрация easy-breezy
+  hosts: "{{ vps_group | default('backup_vps') }}"
+  become: "{{ vps_become | default(false) }}" # ansible_host — root-алиас
+  gather_facts: false # роль фактов не использует; у VPS одно ядро
+  vars:
+    vps_base_ssh_port: 1962
+    # drop-in sshd ведёт easy-breezy (так и было с переезда 2026-10-08); hmd и workspace-management его только проверяют
+    vps_base_ssh_dropin: 00-easy-breezy.conf
+    vps_base_register:
+      name: easy-breezy
+      # 80/443 — nginx (общий с hmd), 7000 — frps. 34666/udp (ru-exit, разворот через NUC) не открываем:
+      # вариант отвергнут 2026-11-05, остатки убирает workspace-management (роль senko_legacy).
+      # Amnezia (34665/udp, 1037, 1038) в UFW открыта только для IPv6: IPv4 публикует Docker в обход
+      # UFW. Поэтому её здесь нет — `ufw allow` добавил бы и лишние правила IPv4.
+      ufw: ["80/tcp", "443/tcp", "7000/tcp"]
+      # 18000 — веб easy-breezy через frp. 18022 (обратный SSH к NUC) — не наш: его регистрирует
+      # workspace-management (роль nuc_ssh_tunnel), объединение на VPS его сохранит
+      frps_allow: [18000]
+  roles: [vps_base]

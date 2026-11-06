@@ -1,0 +1,198 @@
+# vps_base: общий слой VPS. Только добавляет: порты frps и правила UFW — объединение
+# регистраций всех приложений (/etc/vps-base/apps/*.json) и того, что уже стоит на хосте.
+
+- name: Пакеты базового слоя — уже стоят? (dpkg-query дёшев; модуль apt на VPS в одно ядро — нет)
+  ansible.builtin.command: dpkg-query -W -f='${Status}\n' ufw fail2ban unattended-upgrades ca-certificates curl
+  register: _vb_pkgs
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Пакеты базового слоя
+  ansible.builtin.apt:
+    name: [ufw, fail2ban, unattended-upgrades, ca-certificates, curl]
+    state: present
+    update_cache: true
+    cache_valid_time: 86400
+  when: _vb_pkgs.rc != 0 or (_vb_pkgs.stdout_lines | reject('equalto', 'install ok installed') | list | length > 0)
+
+# --- регистрации приложений
+
+- name: Каталог регистраций приложений
+  ansible.builtin.file:
+    path: "{{ vps_base_apps_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Регистрация этого приложения
+  ansible.builtin.copy:
+    dest: "{{ vps_base_apps_dir }}/{{ vps_base_register.name }}.json"
+    content: "{{ vps_base_register | to_nice_json }}\n"
+    mode: "0644"
+  when: vps_base_register is defined
+
+- name: Найти регистрации
+  ansible.builtin.find:
+    paths: "{{ vps_base_apps_dir }}"
+    patterns: "*.json"
+  register: _vb_files
+
+- name: Прочитать регистрации
+  ansible.builtin.slurp:
+    src: "{{ item.path }}"
+  loop: "{{ _vb_files.files }}"
+  register: _vb_raw
+
+- name: Объединить регистрации (с этой — даже в режиме проверки, когда файла ещё нет)
+  ansible.builtin.set_fact:
+    _vb_apps: >-
+      {{ (_vb_raw.results | map(attribute='content') | map('b64decode') | map('from_json') | list
+          + ([vps_base_register] if vps_base_register is defined else []))
+         | unique(attribute='name') }}
+
+- name: Порты UFW и frps от всех приложений
+  ansible.builtin.set_fact:
+    _vb_ufw: >-
+      {{ ([vps_base_ssh_port | string + '/tcp']
+          + (_vb_apps | map(attribute='ufw', default=[]) | flatten)) | unique }}
+    _vb_frps_allow_apps: "{{ _vb_apps | map(attribute='frps_allow', default=[]) | flatten | map('int') | list }}"
+
+# --- SSH
+
+- name: sshd — вход только по ключу
+  ansible.builtin.template:
+    src: sshd-dropin.conf.j2
+    dest: "/etc/ssh/sshd_config.d/{{ vps_base_ssh_dropin }}"
+    mode: "0644"
+  when: vps_base_ssh_dropin | length > 0
+  notify: reload sshd
+
+- name: Действующие настройки sshd
+  ansible.builtin.command: sshd -T
+  register: _vb_sshd
+  changed_when: false
+  check_mode: false
+
+- name: sshd — пароль выключен, root только по ключу, порт тот
+  ansible.builtin.assert:
+    that:
+      - "'passwordauthentication no' in _vb_sshd.stdout_lines"
+      - "'kbdinteractiveauthentication no' in _vb_sshd.stdout_lines"
+      - "('permitrootlogin prohibit-password' in _vb_sshd.stdout_lines) or ('permitrootlogin no' in _vb_sshd.stdout_lines)"
+      - "('port ' ~ vps_base_ssh_port) in _vb_sshd.stdout_lines"
+    fail_msg: "sshd не в безопасном состоянии — проверьте /etc/ssh/sshd_config(.d)"
+    quiet: true
+
+# --- UFW (только добавляем)
+
+- name: Правила UFW сейчас
+  ansible.builtin.command: ufw status
+  register: _vb_ufw_status
+  changed_when: false
+  check_mode: false
+
+- name: UFW — открыть порты приложений
+  ansible.builtin.command: "ufw allow {{ item }}"
+  loop: "{{ _vb_ufw }}"
+  when: _vb_ufw_status.stdout is not search('(?m)^' ~ (item | regex_escape) ~ '\s+ALLOW')
+
+- name: UFW — включить (порт SSH уже разрешён)
+  ansible.builtin.command: ufw --force enable
+  when: "vps_base_ufw_enable and 'Status: inactive' in _vb_ufw_status.stdout"
+
+# --- обновления безопасности
+
+- name: Автоматические обновления безопасности
+  ansible.builtin.lineinfile:
+    path: /etc/apt/apt.conf.d/20auto-upgrades
+    regexp: '^{{ item | regex_escape }} '
+    line: '{{ item }} "1";'
+    create: true
+    mode: "0644"
+  loop: ["APT::Periodic::Update-Package-Lists", "APT::Periodic::Unattended-Upgrade"]
+  when: vps_base_unattended_upgrades
+
+# --- frps (общий туннель для всех приложений)
+
+- name: frps
+  when: vps_base_frps
+  block:
+    - name: Версия frps
+      ansible.builtin.command: /usr/local/bin/frps --version
+      register: _vb_frps_version
+      changed_when: false
+      failed_when: false
+      check_mode: false
+
+    - name: Скачать frps {{ vps_base_frps_version }}
+      ansible.builtin.unarchive:
+        src: "https://github.com/fatedier/frp/releases/download/v{{ vps_base_frps_version }}/frp_{{ vps_base_frps_version }}_linux_{{ vps_base_frps_arch }}.tar.gz"
+        dest: /tmp
+        remote_src: true
+      when: _vb_frps_version.stdout | default('') != vps_base_frps_version
+
+    - name: Поставить frps
+      ansible.builtin.copy:
+        src: "/tmp/frp_{{ vps_base_frps_version }}_linux_{{ vps_base_frps_arch }}/frps"
+        dest: /usr/local/bin/frps
+        remote_src: true
+        mode: "0755"
+      when: _vb_frps_version.stdout | default('') != vps_base_frps_version
+      notify: restart frps
+
+    - name: Каталог /etc/frp
+      ansible.builtin.file:
+        path: /etc/frp
+        state: directory
+        mode: "0755"
+
+    - name: Текущий frps.toml
+      ansible.builtin.stat:
+        path: /etc/frp/frps.toml
+      register: _vb_frps_conf
+
+    - name: Прочитать frps.toml (токен и порты — сохраняем)
+      ansible.builtin.slurp:
+        src: /etc/frp/frps.toml
+      register: _vb_frps_raw
+      when: _vb_frps_conf.stat.exists
+      no_log: true
+
+    - name: Токен и порты frps
+      ansible.builtin.set_fact:
+        vps_base_frps_token: >-
+          {{ (_vb_frps_raw.content | b64decode | regex_search('token\s*=\s*"([^"]+)"', '\1') | first)
+             if _vb_frps_conf.stat.exists
+             else lookup('ansible.builtin.password', '/dev/null', length=40, chars=['ascii_letters', 'digits']) }}
+        vps_base_frps_allow: >-
+          {{ ((_vb_frps_raw.content | b64decode | regex_findall('single\s*=\s*(\d+)') | map('int') | list
+               if _vb_frps_conf.stat.exists else [])
+              + _vb_frps_allow_apps) | unique | sort }}
+      no_log: true
+
+    - name: Порты frps (объединение — чужие не удаляются)
+      ansible.builtin.debug:
+        msg: "allowPorts: {{ vps_base_frps_allow }}"
+
+    - name: frps.toml
+      ansible.builtin.template:
+        src: frps.toml.j2
+        dest: /etc/frp/frps.toml
+        mode: "{{ _vb_frps_conf.stat.mode | default('0600') }}"
+      no_log: true
+      diff: false
+      notify: restart frps
+
+    - name: Юнит frps
+      ansible.builtin.template:
+        src: frps.service.j2
+        dest: /etc/systemd/system/frps.service
+        mode: "0644"
+      notify: restart frps
+
+    - name: frps запущен
+      ansible.builtin.systemd_service:
+        name: frps
+        enabled: true
+        state: started
+        daemon_reload: true

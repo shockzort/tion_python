@@ -1,0 +1,20 @@
+# vps_base — общий слой VPS, на котором живут несколько приложений (hmd, easy-breezy, …).
+# Роль переносима между репозиториями: копируется как есть, приложения отличаются только
+# своим файлом регистрации (/etc/vps-base/apps/<app>.json) и своими ролями.
+#
+# Принцип: только добавляем. Порты frps и правила UFW — объединение всех регистраций и того,
+# что уже стоит на хосте; чужое не удаляется, общий конфиг не перетирается.
+
+vps_base_ssh_port: 22
+# drop-in sshd с жёсткими настройками (ключи, без пароля, root — только по ключу); "" — не трогать
+vps_base_ssh_dropin: 00-vps-base.conf
+
+vps_base_ufw_enable: true        # включить UFW, если выключен (на свежем VPS)
+vps_base_unattended_upgrades: true
+
+vps_base_frps: true
+vps_base_frps_version: "0.70.0"
+vps_base_frps_arch: amd64
+vps_base_frps_bind_port: 7000
+
+vps_base_apps_dir: /etc/vps-base/apps
