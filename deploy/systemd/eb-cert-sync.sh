@@ -5,9 +5,11 @@
 # стороне умеет ровно одно — отдать fullchain+privkey (см. deploy/ansible/README.md).
 # Вызывается easy-breezy-cert-sync.timer раз в сутки; nginx перезагружается
 # только когда файлы реально изменились (продление раз в ~60 дней).
+# Адрес VPS в репо не хранится (репо публичный): EB_CERT_SSH_HOST приходит из cert-sync.env,
+# который пишет provision.yml из deploy/ansible/group_vars/all/vault.yml.
 set -eu
 
-: "${EB_CERT_SSH_HOST:=root@VPS_ADDRESS_REDACTED}"
+: "${EB_CERT_SSH_HOST:?не задан — /opt/easy-breezy/cert-sync.env, его пишет make provision из vault}"
 : "${EB_CERT_SSH_PORT:=1962}"
 : "${EB_CERT_SSH_KEY:=/root/.ssh/eb-cert}"
 : "${EB_TLS_DIR:=/opt/easy-breezy/tls}"

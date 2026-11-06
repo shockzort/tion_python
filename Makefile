@@ -51,6 +51,11 @@ release:
 	git add server/pyproject.toml server/src/easy_breezy/__init__.py server/uv.lock
 	git commit -m "release: v$(VERSION)" && git tag "v$(VERSION)"
 
+# Пароль Ansible Vault (deploy/ansible/group_vars/all/vault.yml — адреса, которым не место в публичном
+# репо): тот же, что у workspace-management. Другой путь — make … ANSIBLE_VAULT_PASSWORD_FILE=<файл>
+ANSIBLE_VAULT_PASSWORD_FILE ?= $(HOME)/.config/workspace-management/vault-pass
+export ANSIBLE_VAULT_PASSWORD_FILE
+
 # Выкат на целевой сервер (см. deploy/ansible/README.md): сборка UI и
 # arm64-образа, доставка по ssh, health-гейт, автооткат при провале
 deploy:

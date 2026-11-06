@@ -135,6 +135,15 @@
         dest: /usr/local/bin/eb-cert-sync.sh
         mode: "0755"
 
+    # Репо публичный — адрес VPS только в vault (group_vars/all/vault.yml); юнит читает cert-sync.env
+    - name: Адрес VPS для доставки сертификата (из vault)
+      ansible.builtin.lineinfile:
+        path: "{{ eb_root }}/cert-sync.env"
+        regexp: '^EB_CERT_SSH_HOST='
+        line: "EB_CERT_SSH_HOST=root@{{ vault_senko_ip }}"
+        create: true
+        mode: "0600"
+
     - name: Watchdog-скрипт
       ansible.builtin.copy:
         src: ../systemd/eb-watchdog.sh
